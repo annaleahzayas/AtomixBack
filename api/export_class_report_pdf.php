@@ -26,7 +26,7 @@ function pdfEscapeText($text) {
 /**
  * Pure-PHP Professional Single-Page-Per-Student PDF Engine
  */
-function generateStructuredPdf($classInfo, $students, $chapters, $pretestMap, $stageAssessmentMap, $studentExamsMap, $popQuizMap, $uniqueQuizzes, $gameStatsMap, $totalSystemStages) {
+function generateStructuredPdf($classInfo, $students, $chapters, $stageAssessmentMap, $studentExamsMap, $popQuizMap, $uniqueQuizzes, $gameStatsMap, $totalSystemStages) {
     $pageWidth = 595;
     $pageHeight = 842;
     $margin = 40;
@@ -132,16 +132,6 @@ function generateStructuredPdf($classInfo, $students, $chapters, $pretestMap, $s
         foreach ($chapters as $chId => $chInfo) {
             $chNum = $chInfo['num'];
             $chTitle = "Chapter {$chNum}: " . $chInfo['title'];
-
-            // Pre-test
-            $preData = $pretestMap[$sid][$chId] ?? null;
-            $preText = "-";
-            if ($preData && $preData['score'] !== null) {
-                $preText = (int)$preData['score'] . " / " . (int)($preData['total_questions'] ?? 10);
-            }
-            $bg = $toggle ? "0.96 0.97 0.98" : "1.0 1.0 1.0";
-            $drawTableRow($content, $y, $chTitle, "Pre-Test", $preText, false, $bg);
-            $toggle = !$toggle;
 
             // Stage Lessons
             foreach ($chInfo['stages'] as $stgIdx => $stg) {
@@ -343,28 +333,7 @@ try {
         $chapters[$chId]['stages'][] = $stg;
     }
 
-    // 4. Pre-Tests
-    $pretestMap = [];
-    try {
-        $preSql = "
-            SELECT spr.student_id, cp.chapter_id, spr.score, spr.total_questions
-            FROM student_pretest_results spr
-            JOIN chapter_pretests cp ON spr.pretest_id = cp.pretest_id
-            WHERE spr.student_id IN ($placeholders)
-            AND spr.attempted_at = (
-                SELECT MAX(spr2.attempted_at)
-                FROM student_pretest_results spr2
-                WHERE spr2.pretest_id = spr.pretest_id AND spr2.student_id = spr.student_id
-            )
-        ";
-        $preStmt = $db->prepare($preSql);
-        $preStmt->execute($studentIds);
-        while ($row = $preStmt->fetch(PDO::FETCH_ASSOC)) {
-            $pretestMap[$row['student_id']][$row['chapter_id']] = $row;
-        }
-    } catch (Throwable $e) {}
-
-    // 5. Stage Post-Tests
+    // 4. Stage Post-Tests
     $stageAssessmentMap = [];
     try {
         $stageAssessmentSql = "
@@ -500,7 +469,7 @@ try {
     } catch (Throwable $e) {}
 
     // Output dynamic multi-page PDF
-    $pdfData = generateStructuredPdf($classInfo, $students, $chapters, $pretestMap, $stageAssessmentMap, $studentExamsMap, $popQuizMap, $uniqueQuizzes, $gameStatsMap, $totalSystemStages);
+    $pdfData = generateStructuredPdf($classInfo, $students, $chapters, $stageAssessmentMap, $studentExamsMap, $popQuizMap, $uniqueQuizzes, $gameStatsMap, $totalSystemStages);
 
     $safeClass = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) ($classInfo['class_name'] ?? 'class'));
     $fileName = 'class_report_' . $safeClass . '_' . date('Ymd_His') . '.pdf';

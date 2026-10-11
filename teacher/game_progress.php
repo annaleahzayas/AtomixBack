@@ -258,8 +258,6 @@ if ($selected_chapter_id > 0) {
                                 <th>Student</th>
                                 <th>Class</th>
                                 <th>Stage</th>
-                                <th>Pretest Score</th>
-                                <th>Pretest Attempt</th>
                                 <th>Assessment Score</th>
                                 <th>Assessment Attempt</th>
                                 <th>Status</th>
@@ -270,7 +268,7 @@ if ($selected_chapter_id > 0) {
                         <tbody>
                             <?php if (empty($students)): ?>
                                 <tr>
-                                    <td colspan="9" class="text-center">
+                                    <td colspan="7" class="text-center">
                                         No students have started this selection yet.
                                         <?php if ($selected_stage_id !== 0 && !empty($progress_stage_ids)): ?>
                                             Try another stage in this chapter.
@@ -283,20 +281,6 @@ if ($selected_chapter_id > 0) {
                                         <td><?php echo htmlspecialchars($student['last_name'] . ', ' . $student['first_name']); ?></td>
                                         <td><?php echo htmlspecialchars($student['class_name'] ?? 'No Class'); ?></td>
                                         <td><?php echo htmlspecialchars($student['progress_stage_name'] ?? '-'); ?></td>
-                                        <td>
-                                            <?php if ($student['pretest_score'] === null || (int)$student['pretest_total_questions'] === 0): ?>
-                                                -
-                                            <?php else: ?>
-                                                <?php echo (int) $student['pretest_score']; ?>/<?php echo (int) $student['pretest_total_questions']; ?>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <?php if (empty($student['pretest_attempted_at'])): ?>
-                                                -
-                                            <?php else: ?>
-                                                <?php echo htmlspecialchars(date('M j, Y g:i A', strtotime($student['pretest_attempted_at']))); ?>
-                                            <?php endif; ?>
-                                        </td>
                                         <td>
                                             <?php if ($student['assessment_score'] === null || (int)$student['assessment_total_questions'] === 0): ?>
                                                 -

@@ -702,7 +702,6 @@ function viewStudentDetails(studentData) {
             const progressStatusLabel = progressStatus
                 ? progressStatus.charAt(0).toUpperCase() + progressStatus.slice(1)
                 : 'Unknown';
-            const pretestPill = buildScorePill('Pre-test', stage.pretest_score, stage.pretest_total_questions);
             const assessmentPill = buildScorePill('Assessment', stage.assessment_score, stage.assessment_total_questions);
 
             return `
@@ -715,7 +714,7 @@ function viewStudentDetails(studentData) {
                 </div>
                 <div class="detail-meta">
                     Concept: ${stage.science_concept} | Updated: ${new Date(stage.last_updated).toLocaleDateString()}<br>
-                    ${pretestPill}${assessmentPill}
+                    ${assessmentPill}
                 </div>
             </div>
         `;
@@ -775,7 +774,6 @@ function filterStudentGameDetails() {
         const progressStatusLabel = progressStatus
             ? progressStatus.charAt(0).toUpperCase() + progressStatus.slice(1)
             : 'Unknown';
-        const pretestPill = buildScorePill('Pre-test', stage.pretest_score, stage.pretest_total_questions);
         const assessmentPill = buildScorePill('Assessment', stage.assessment_score, stage.assessment_total_questions);
 
         return `
@@ -788,7 +786,7 @@ function filterStudentGameDetails() {
             </div>
             <div class="detail-meta">
                 Concept: ${stage.science_concept} | Updated: ${new Date(stage.last_updated).toLocaleDateString()}<br>
-                ${pretestPill}${assessmentPill}
+                ${assessmentPill}
             </div>
         </div>
     `;

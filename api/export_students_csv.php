@@ -76,28 +76,7 @@ try {
         $chapters[$chId]['stages'][] = $stg;
     }
 
-    // 4. Fetch Pre-Test Scores per Chapter
-    $pretestMap = [];
-    try {
-        $preSql = "
-            SELECT spr.student_id, cp.chapter_id, spr.score, spr.total_questions
-            FROM student_pretest_results spr
-            JOIN chapter_pretests cp ON spr.pretest_id = cp.pretest_id
-            WHERE spr.student_id IN ($placeholders)
-            AND spr.attempted_at = (
-                SELECT MAX(spr2.attempted_at)
-                FROM student_pretest_results spr2
-                WHERE spr2.pretest_id = spr.pretest_id AND spr2.student_id = spr.student_id
-            )
-        ";
-        $preStmt = $db->prepare($preSql);
-        $preStmt->execute($studentIds);
-        while ($row = $preStmt->fetch(PDO::FETCH_ASSOC)) {
-            $pretestMap[$row['student_id']][$row['chapter_id']] = $row;
-        }
-    } catch (Throwable $e) {}
-
-    // 5. Fetch Stage Scores (Post-Tests)
+    // 4. Fetch Stage Scores (Post-Tests)
     $stageAssessmentMap = [];
     try {
         $stageAssessmentSql = "
@@ -278,7 +257,7 @@ try {
     foreach ($chapters as $chId => $chInfo) {
         $chNum = $chInfo['num'];
         $chTitle = htmlspecialchars(strtoupper($chInfo['title']));
-        $colCount = 1 + count($chInfo['stages']); // 1 Pre-test + N Stages
+        $colCount = count($chInfo['stages']);
         $color = $chapterColors[$chNum] ?? $chapterColors[1];
 
         echo '<th colspan="' . $colCount . '" style="background-color:' . $color['bg'] . '; color:' . $color['text'] . '; font-weight:bold;">'
@@ -309,7 +288,6 @@ try {
         $color = $chapterColors[$chNum] ?? $chapterColors[1];
         $subStyle = 'style="background-color:' . $color['bg'] . '; color:' . $color['text'] . ';"';
 
-        echo '<th ' . $subStyle . '>Pre-Test</th>';
         foreach ($chInfo['stages'] as $sIdx => $stg) {
             echo '<th ' . $subStyle . '>Stage ' . ($sIdx + 1) . ' Post-Test</th>';
         }
@@ -346,14 +324,6 @@ try {
         // 1. Chapter Scores
         foreach ($chapters as $chId => $chInfo) {
             $chNum = $chInfo['num'];
-
-            // Pre-test
-            $preData = $pretestMap[$sid][$chId] ?? null;
-            if ($preData && $preData['score'] !== null) {
-                echo '<td>' . (int)$preData['score'] . '</td>';
-            } else {
-                echo '<td>-</td>';
-            }
 
             // Stage Post-tests
             foreach ($chInfo['stages'] as $stg) {
