@@ -6,6 +6,7 @@
 
 require_once '../config/database.php';
 require_once '../includes/email_service.php';
+require_once '../includes/teacher_name_validation.php';
 
 require_once '../includes/auth_check.php';
 checkAdminAuth();
@@ -63,6 +64,10 @@ try {
 
             if (!$teacherId || !$firstName || !$lastName || !$email || !$username) {
                 throw new Exception('All fields are required');
+            }
+
+            if (teacherNameExists($db, $firstName, $lastName, (int) $teacherId)) {
+                throw new Exception('A teacher with this first and last name already exists');
             }
 
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -332,6 +337,9 @@ try {
 
             if (!$firstName || !$lastName || !$email || !$username) {
                 throw new Exception('All fields are required');
+            }
+            if (teacherNameExists($db, $firstName, $lastName)) {
+                throw new Exception('A teacher with this first and last name already exists');
             }
             if (!isValidEmailAddress($email)) {
                 throw new Exception('Invalid email address format');

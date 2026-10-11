@@ -896,7 +896,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <button type="button" id="vm_resend_btn" onclick="resendVerificationCode()" style="background:#3b82f6;color:#fff;border:none;padding:8px 12px;border-radius:8px;">Resend code</button>
                     <span id="vm_resend_countdown" style="font-size:0.9rem;color:#374151;display:none;margin-right:auto;"> </span>
                     <button type="button" onclick="closeVerificationModal()" style="background:#6b7280;color:#fff;border:none;padding:8px 14px;border-radius:8px;">Cancel</button>
-                    <button type="submit" style="background:#10b981;color:#fff;border:none;padding:8px 14px;border-radius:8px;">Verify</button>
+                    <button type="submit" id="vm_verify_btn" style="background:#10b981;color:#fff;border:none;padding:8px 14px;border-radius:8px;display:inline-flex;align-items:center;gap:8px;">
+                        <i class="fas fa-spinner fa-spin" id="vm_verify_spinner" style="display:none;" aria-hidden="true"></i>
+                        <span id="vm_verify_btn_text">Verify</span>
+                    </button>
                 </div>
                 <div id="vm_error" style="color:#991b1b;font-weight:600;margin-top:10px;display:none;"></div>
                 <div id="vm_success" style="color:#065f46;background:#ecfdf5;border:1px solid #bbf7d0;padding:8px;border-radius:6px;margin-top:8px;display:none;font-weight:600;"></div>
@@ -923,11 +926,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
         document.getElementById('verificationModalForm').addEventListener('submit', function(e){
             e.preventDefault();
+            var verifyButton = document.getElementById('vm_verify_btn');
+            var verifySpinner = document.getElementById('vm_verify_spinner');
+            var verifyButtonText = document.getElementById('vm_verify_btn_text');
             var email = document.getElementById('vm_email').value;
             var code = document.getElementById('vm_code').value.trim();
             if (!/^[0-9]{6}$/.test(code)) {
                 var err = document.getElementById('vm_error'); err.style.display = 'block'; err.textContent = 'Please enter a valid 6-digit code.'; return;
             }
+            verifyButton.disabled = true;
+            verifySpinner.style.display = 'inline-block';
+            verifyButtonText.textContent = 'Verifying...';
+            document.getElementById('vm_error').style.display = 'none';
             fetch('../api/verify_code.php', {
                 method: 'POST',
                 credentials: 'same-origin',
@@ -935,11 +945,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 body: 'email=' + encodeURIComponent(email) + '&code=' + encodeURIComponent(code)
             }).then(function(r){ return r.json(); }).then(function(data){
                 if (data && data.success) {
-                window.location.replace('/teacher/change_password.php?verified=1&_=' + Date.now());
-                    } else {
+                    var changePasswordUrl = data.redirect || 'change_password.php';
+                    window.location.replace(changePasswordUrl + '?verified=1&_=' + Date.now());
+                } else {
                     var err = document.getElementById('vm_error'); err.style.display = 'block'; err.textContent = data && data.message ? data.message : 'Verification failed';
                 }
-            }).catch(function(){ var err = document.getElementById('vm_error'); err.style.display = 'block'; err.textContent = 'Network error'; });
+                if (!data || !data.success) {
+                    verifyButton.disabled = false;
+                    verifySpinner.style.display = 'none';
+                    verifyButtonText.textContent = 'Verify';
+                }
+            }).catch(function(){
+                var err = document.getElementById('vm_error');
+                err.style.display = 'block';
+                err.textContent = 'Network error';
+                verifyButton.disabled = false;
+                verifySpinner.style.display = 'none';
+                verifyButtonText.textContent = 'Verify';
+            });
         });
 
         // Resend logic with cooldown

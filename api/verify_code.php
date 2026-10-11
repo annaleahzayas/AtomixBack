@@ -88,7 +88,15 @@ try {
     $tokens = JWTHelper::generateTokenPair($userData);
     JWTHelper::setTokenCookies($tokens['access_token'], $tokens['refresh_token'], 'teacher');
 
-    echo json_encode(['success' => true, 'message' => 'Email verified successfully', 'redirect' => '/teacher/change_password.php']);
+    $applicationPath = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+    $changePasswordUrl = ($applicationPath === '' || $applicationPath === '.')
+        ? '/teacher/change_password.php'
+        : $applicationPath . '/teacher/change_password.php';
+    echo json_encode([
+        'success' => true,
+        'message' => 'Email verified successfully',
+        'redirect' => $changePasswordUrl
+    ]);
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }

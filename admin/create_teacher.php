@@ -9,6 +9,7 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['role']) || $_SESSION['role
 
 require_once '../config/database.php';
 require_once '../includes/email_service.php';
+require_once '../includes/teacher_name_validation.php';
 
 $db = Database::getInstance()->getConnection();
 $message = '';
@@ -26,6 +27,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Validation
     if (!$email || !$username || !$first_name || !$last_name) {
         $message = 'All fields are required.';
+        if ($isAjax) {
+            echo json_encode(['success' => false, 'message' => $message]);
+            exit;
+        }
+    } elseif (teacherNameExists($db, $first_name, $last_name)) {
+        $message = 'A teacher with this first and last name already exists.';
         if ($isAjax) {
             echo json_encode(['success' => false, 'message' => $message]);
             exit;
