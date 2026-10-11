@@ -795,6 +795,16 @@ async function submitQuestion(event) {
     } else {
         highlightField(form.question_text, true);
     }
+
+    const chapterSelect = document.getElementById('questionChapter');
+    if (!chapterSelect.value) {
+        showToast('Please select a chapter', 'error');
+        chapterSelect.focus();
+        highlightField(chapterSelect, false);
+        return;
+    } else {
+        highlightField(chapterSelect, true);
+    }
     
     if (!form.lesson_id.value) {
         showToast('Please select a lesson', 'error');
@@ -993,7 +1003,10 @@ async function editQuestion(id) {
             const question = result.data;
             
             document.getElementById('editQuestionId').value = question.question_id;
-            document.getElementById('editQuestionLesson').value = question.lesson_id;
+            const lesson = lessonsData.find(item => String(item.lesson_id) === String(question.lesson_id));
+            const chapterSelect = document.getElementById('editQuestionChapter');
+            chapterSelect.value = lesson ? String(lesson.chapter_id) : '';
+            updateQuestionLessonOptions('editQuestionChapter', 'editQuestionLesson', question.lesson_id);
             document.getElementById('editQuestionType').value = question.question_type || 'mcq';
             document.getElementById('editQuestionText').value = question.question_text;
             document.getElementById('editQuestionVisibility').value = question.visibility;
@@ -1058,6 +1071,16 @@ async function updateQuestion(event) {
         return;
     } else {
         highlightField(form.question_text, true);
+    }
+
+    const chapterSelect = document.getElementById('editQuestionChapter');
+    if (!chapterSelect.value) {
+        showToast('Please select a chapter', 'error');
+        chapterSelect.focus();
+        highlightField(chapterSelect, false);
+        return;
+    } else {
+        highlightField(chapterSelect, true);
     }
     
     if (!form.lesson_id.value) {

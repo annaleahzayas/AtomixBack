@@ -25,7 +25,7 @@ $teacher_id = $_SESSION['teacher_id'] ?? null;
 $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'admin');
 
 // Enforce RBAC for teachers on write actions
-$writeActions = ['create_question', 'update_question', 'delete_question', 'toggle_archive_question', 'add_choice', 'update_choice', 'delete_choice', 'bulk_create_questions'];
+$writeActions = ['create_question', 'update_question', 'delete_question', 'toggle_archive_question', 'add_choice', 'update_choice', 'delete_choice', 'bulk_create_questions', 'respond_edit_permission'];
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 if (!$isAdmin && in_array($action, $writeActions, true)) {
     if (!hasTeacherPermission($db, 'can_manage_questions')) {
@@ -33,6 +33,13 @@ if (!$isAdmin && in_array($action, $writeActions, true)) {
         echo json_encode(['success' => false, 'message' => 'Forbidden: missing can_manage_questions permission']);
         exit;
     }
+}
+if (!$isAdmin && $action === 'request_edit_permission'
+    && !hasTeacherPermission($db, 'can_manage_questions')
+    && !hasTeacherPermission($db, 'can_manage_quizzes')) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Forbidden: question or quiz management permission is required']);
+    exit;
 }
 
 try {
@@ -45,7 +52,10 @@ try {
             getQuestion($db);
             break;
         case 'update_question':
-            updateQuestion($db, $teacher_id, $isAdmin);
+            updateQuestion($db, $teacher_id, $isAdmin, $_SESSION['name'] ?? '');
+            break;
+        case 'get_question_edit_history':
+            getQuestionEditHistory($db, $teacher_id, $isAdmin);
             break;
         case 'delete_question':
             toggleArchiveQuestion($db, $teacher_id, $isAdmin);
@@ -55,6 +65,15 @@ try {
             break;
         case 'get_questions':
             getQuestions($db, $teacher_id, $isAdmin);
+            break;
+        case 'request_edit_permission':
+            requestEditPermission($db, $teacher_id);
+            break;
+        case 'list_edit_permission_requests':
+            listEditPermissionRequests($db, $teacher_id);
+            break;
+        case 'respond_edit_permission':
+            respondEditPermission($db, $teacher_id);
             break;
 
         // CHOICE OPERATIONS
@@ -174,7 +193,7 @@ function getQuestion($db) {
     }
 }
 
-function updateQuestion($db, $teacher_id, $isAdmin = false) {
+function updateQuestion($db, $teacher_id, $isAdmin = false, $editor_name = '') {
     $id = intval($_POST['question_id'] ?? 0);
     $lesson_id = intval($_POST['lesson_id'] ?? 0);
     $question_text = trim($_POST['question_text'] ?? '');
@@ -187,17 +206,79 @@ function updateQuestion($db, $teacher_id, $isAdmin = false) {
 
     $db->beginTransaction();
     try {
+        $accessSql = "SELECT q.lesson_id, q.question_text, q.question_type, q.visibility
+                      FROM questions_master q
+                      WHERE q.question_id = ?";
+        $accessParams = [$id];
+        if (!$isAdmin) {
+            $accessSql .= " AND (
+                q.created_by_teacher_id = ?
+                OR EXISTS (
+                    SELECT 1 FROM question_edit_requests
+                    WHERE question_edit_requests.question_id = q.question_id
+                      AND requester_teacher_id = ?
+                      AND status = 'approved'
+                )
+            )";
+            $accessParams[] = $teacher_id;
+            $accessParams[] = $teacher_id;
+        }
+        $originalStmt = $db->prepare($accessSql);
+        $originalStmt->execute($accessParams);
+        $originalQuestion = $originalStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$originalQuestion) {
+            $db->rollBack();
+            jsonResponse(false, 'Question not found or permission denied');
+        }
+
+        $originalChoicesStmt = $db->prepare(
+            "SELECT choice_text, is_correct FROM quiz_choices WHERE question_id = ? ORDER BY choice_id"
+        );
+        $originalChoicesStmt->execute([$id]);
+        $beforeData = [
+            'lesson_id' => (int) $originalQuestion['lesson_id'],
+            'question_text' => $originalQuestion['question_text'],
+            'question_type' => $originalQuestion['question_type'],
+            'visibility' => $originalQuestion['visibility'],
+            'choices' => $originalChoicesStmt->fetchAll(PDO::FETCH_ASSOC)
+        ];
+
         if ($isAdmin) {
             $stmt = $db->prepare("UPDATE questions_master SET lesson_id = ?, question_text = ?, question_type = ?, visibility = ? WHERE question_id = ?");
             $stmt->execute([$lesson_id, $question_text, $question_type, $visibility, $id]);
         } else {
-            $stmt = $db->prepare("UPDATE questions_master SET lesson_id = ?, question_text = ?, question_type = ?, visibility = ? WHERE question_id = ? AND created_by_teacher_id = ?");
-            $stmt->execute([$lesson_id, $question_text, $question_type, $visibility, $id, $teacher_id]);
+            $stmt = $db->prepare(
+                "UPDATE questions_master
+                 SET lesson_id = ?, question_text = ?, question_type = ?, visibility = ?
+                 WHERE question_id = ?
+                   AND (
+                       created_by_teacher_id = ?
+                       OR EXISTS (
+                           SELECT 1 FROM question_edit_requests
+                           WHERE question_edit_requests.question_id = questions_master.question_id
+                             AND requester_teacher_id = ?
+                             AND status = 'approved'
+                       )
+                   )"
+            );
+            $stmt->execute([$lesson_id, $question_text, $question_type, $visibility, $id, $teacher_id, $teacher_id]);
         }
 
         if ($stmt->rowCount() === 0 && !$isAdmin) {
-            $checkStmt = $db->prepare("SELECT question_id FROM questions_master WHERE question_id = ? AND created_by_teacher_id = ?");
-            $checkStmt->execute([$id, $teacher_id]);
+            $checkStmt = $db->prepare(
+                "SELECT question_id FROM questions_master
+                 WHERE question_id = ?
+                   AND (
+                       created_by_teacher_id = ?
+                       OR EXISTS (
+                           SELECT 1 FROM question_edit_requests
+                           WHERE question_edit_requests.question_id = questions_master.question_id
+                             AND requester_teacher_id = ?
+                             AND status = 'approved'
+                       )
+                   )"
+            );
+            $checkStmt->execute([$id, $teacher_id, $teacher_id]);
             if (!$checkStmt->fetch()) {
                 $db->rollBack();
                 jsonResponse(false, 'Question not found or permission denied');
@@ -232,12 +313,92 @@ function updateQuestion($db, $teacher_id, $isAdmin = false) {
             }
         }
 
+        $updatedChoicesStmt = $db->prepare(
+            "SELECT choice_text, is_correct FROM quiz_choices WHERE question_id = ? ORDER BY choice_id"
+        );
+        $updatedChoicesStmt->execute([$id]);
+        $afterData = [
+            'lesson_id' => $lesson_id,
+            'question_text' => $question_text,
+            'question_type' => $question_type,
+            'visibility' => $visibility,
+            'choices' => $updatedChoicesStmt->fetchAll(PDO::FETCH_ASSOC)
+        ];
+
+        if (!$isAdmin && $teacher_id) {
+            $editorStmt = $db->prepare("SELECT first_name, last_name FROM teachers WHERE teacher_id = ?");
+            $editorStmt->execute([$teacher_id]);
+            $editor = $editorStmt->fetch(PDO::FETCH_ASSOC);
+            if ($editor) {
+                $editor_name = trim($editor['first_name'] . ' ' . $editor['last_name']);
+            }
+        }
+        $editor_name = trim((string) $editor_name);
+        if ($editor_name === '') {
+            $editor_name = $isAdmin ? 'Administrator' : 'Teacher';
+        }
+
+        $beforeJson = json_encode($beforeData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $afterJson = json_encode($afterData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($beforeJson === false || $afterJson === false) {
+            throw new RuntimeException('Unable to serialize question edit history');
+        }
+
+        $historyStmt = $db->prepare(
+            "INSERT INTO question_edit_history
+                (question_id, editor_teacher_id, editor_name, before_data, after_data)
+             VALUES (?, ?, ?, ?, ?)"
+        );
+        $historyStmt->execute([
+            $id,
+            $isAdmin ? null : $teacher_id,
+            $editor_name,
+            $beforeJson,
+            $afterJson
+        ]);
+
         $db->commit();
         jsonResponse(true, 'Question updated successfully');
     } catch (Exception $e) {
         $db->rollBack();
         jsonResponse(false, 'Update failed: ' . $e->getMessage());
     }
+}
+
+function getQuestionEditHistory($db, $teacher_id, $isAdmin = false) {
+    $question_id = intval($_GET['id'] ?? 0);
+    if (!$question_id) {
+        jsonResponse(false, 'Question ID is required');
+    }
+
+    $accessSql = "SELECT question_id FROM questions_master WHERE question_id = ?";
+    $accessParams = [$question_id];
+    if (!$isAdmin) {
+        $accessSql .= " AND created_by_teacher_id = ?";
+        $accessParams[] = $teacher_id;
+    }
+    $accessStmt = $db->prepare($accessSql);
+    $accessStmt->execute($accessParams);
+    if (!$accessStmt->fetchColumn()) {
+        http_response_code(403);
+        jsonResponse(false, 'Only the question owner can view its edit history');
+    }
+
+    $historyStmt = $db->prepare(
+        "SELECT history_id, editor_name, before_data, after_data, edited_at
+         FROM question_edit_history
+         WHERE question_id = ?
+         ORDER BY edited_at DESC, history_id DESC"
+    );
+    $historyStmt->execute([$question_id]);
+    $history = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($history as &$entry) {
+        $entry['before_data'] = json_decode($entry['before_data'], true);
+        $entry['after_data'] = json_decode($entry['after_data'], true);
+    }
+    unset($entry);
+
+    jsonResponse(true, 'Question edit history retrieved', $history);
 }
 
 function toggleArchiveQuestion($db, $teacher_id, $isAdmin = false) {
@@ -321,9 +482,105 @@ function getQuestions($db, $teacher_id, $isAdmin = false) {
 // CHOICE HELPERS
 function checkChoiceQuestionOwner($db, $question_id, $teacher_id, $isAdmin) {
     if ($isAdmin) return true;
-    $stmt = $db->prepare("SELECT question_id FROM questions_master WHERE question_id = ? AND created_by_teacher_id = ?");
-    $stmt->execute([$question_id, $teacher_id]);
+    $stmt = $db->prepare(
+        "SELECT q.question_id FROM questions_master q
+         WHERE q.question_id = ?
+           AND (
+               q.created_by_teacher_id = ?
+               OR EXISTS (
+                   SELECT 1 FROM question_edit_requests
+                   WHERE question_edit_requests.question_id = q.question_id
+                     AND requester_teacher_id = ?
+                     AND status = 'approved'
+               )
+           )"
+    );
+    $stmt->execute([$question_id, $teacher_id, $teacher_id]);
     return (bool) $stmt->fetch();
+}
+
+function requestEditPermission($db, $teacher_id) {
+    $question_id = intval($_POST['question_id'] ?? 0);
+    if (!$question_id || !$teacher_id) {
+        jsonResponse(false, 'Question ID is required');
+    }
+
+    $questionStmt = $db->prepare(
+        "SELECT created_by_teacher_id, visibility
+         FROM questions_master
+         WHERE question_id = ?"
+    );
+    $questionStmt->execute([$question_id]);
+    $question = $questionStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$question || (int) $question['created_by_teacher_id'] === (int) $teacher_id) {
+        jsonResponse(false, 'You cannot request editing access for this question');
+    }
+    if ($question['visibility'] !== 'public') {
+        jsonResponse(false, 'Editing access can only be requested for public questions');
+    }
+
+    $stmt = $db->prepare(
+        "INSERT INTO question_edit_requests
+            (question_id, requester_teacher_id, question_author_teacher_id, status)
+         VALUES (?, ?, ?, 'pending')
+         ON DUPLICATE KEY UPDATE
+            question_author_teacher_id = VALUES(question_author_teacher_id),
+            requested_at = IF(status = 'approved', requested_at, CURRENT_TIMESTAMP),
+            responded_at = IF(status = 'approved', responded_at, NULL),
+            status = IF(status = 'approved', 'approved', 'pending')"
+    );
+    $stmt->execute([$question_id, $teacher_id, $question['created_by_teacher_id']]);
+
+    $statusStmt = $db->prepare(
+        "SELECT status FROM question_edit_requests
+         WHERE question_id = ? AND requester_teacher_id = ?"
+    );
+    $statusStmt->execute([$question_id, $teacher_id]);
+    $status = $statusStmt->fetchColumn();
+    jsonResponse(true, $status === 'approved'
+        ? 'You already have permission to edit this question'
+        : 'Permission request sent to the question author', ['status' => $status]);
+}
+
+function listEditPermissionRequests($db, $teacher_id) {
+    if (!$teacher_id) {
+        jsonResponse(false, 'Teacher account is required');
+    }
+
+    $stmt = $db->prepare(
+        "SELECT r.request_id, r.question_id, r.requested_at,
+                q.question_text, requester.first_name AS requester_first_name,
+                requester.last_name AS requester_last_name
+         FROM question_edit_requests r
+         JOIN questions_master q ON q.question_id = r.question_id
+         JOIN teachers requester ON requester.teacher_id = r.requester_teacher_id
+         WHERE r.question_author_teacher_id = ? AND r.status = 'pending'
+         ORDER BY r.requested_at ASC"
+    );
+    $stmt->execute([$teacher_id]);
+    jsonResponse(true, 'Permission requests retrieved', $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function respondEditPermission($db, $teacher_id) {
+    $request_id = intval($_POST['request_id'] ?? 0);
+    $decision = $_POST['decision'] ?? '';
+    if (!$request_id || !in_array($decision, ['approved', 'rejected'], true)) {
+        jsonResponse(false, 'A valid request and decision are required');
+    }
+
+    $stmt = $db->prepare(
+        "UPDATE question_edit_requests
+         SET status = ?, responded_at = CURRENT_TIMESTAMP
+         WHERE request_id = ? AND question_author_teacher_id = ? AND status = 'pending'"
+    );
+    $stmt->execute([$decision, $request_id, $teacher_id]);
+    if ($stmt->rowCount() !== 1) {
+        jsonResponse(false, 'Permission request not found or already handled');
+    }
+
+    jsonResponse(true, $decision === 'approved'
+        ? 'Editing permission approved'
+        : 'Editing permission denied');
 }
 
 function addChoice($db, $teacher_id, $isAdmin = false) {

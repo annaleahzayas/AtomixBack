@@ -41,7 +41,7 @@ $_can = function(string $perm) use ($_sidebarPerms): bool {
     <span style="font-size: 22px; font-weight: bold; color: #f8f8f8;">Atomix</span>
 </div>
 <?php
-$_questionsPages = ['questions.php','archived_questions.php','question_bank.php','chapter_pretest.php','export_questions.php'];
+$_questionsPages = ['questions.php','question_history.php','archived_questions.php','question_bank.php','chapter_pretest.php','export_questions.php'];
 $_quizzesPages   = ['quizzes.php','active_quizzes.php','quiz_takers.php','exam.php','exam_manager.php'];
 $_reportsPages   = ['game_progress.php'];
 $_currentPage    = basename($_SERVER['PHP_SELF']);
@@ -84,6 +84,10 @@ $_reportsOpen    = in_array($_currentPage, $_reportsPages)   ? ' open' : '';
             <a href="questions.php" class="nav-item nav-subitem<?php if($_currentPage=='questions.php') echo ' active'; ?>">
                 <i class="fas fa-question-circle"></i>
                 <span>Questions</span>
+            </a>
+            <a href="question_history.php" class="nav-item nav-subitem<?php if($_currentPage=='question_history.php') echo ' active'; ?>">
+                <i class="fas fa-clock-rotate-left"></i>
+                <span>Edit History</span>
             </a>
             <a href="archived_questions.php" class="nav-item nav-subitem<?php if($_currentPage=='archived_questions.php') echo ' active'; ?>">
                 <i class="fas fa-box-archive"></i>

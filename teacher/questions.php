@@ -33,15 +33,18 @@ try {
     $questionsStmt = $db->prepare("
         SELECT q.*, l.lesson_title, c.chapter_title,
                (SELECT COUNT(*) FROM quiz_choices WHERE question_id = q.question_id) as choice_count,
-               t.first_name, t.last_name
+               t.first_name, t.last_name, edit_request.status AS edit_permission_status
         FROM questions_master q 
         JOIN lessons l ON q.lesson_id = l.lesson_id 
         JOIN chapters c ON l.chapter_id = c.chapter_id 
         LEFT JOIN teachers t ON q.created_by_teacher_id = t.teacher_id
+        LEFT JOIN question_edit_requests edit_request
+            ON edit_request.question_id = q.question_id
+            AND edit_request.requester_teacher_id = ?
         WHERE q.created_by_teacher_id = ? OR q.visibility = 'public'
         ORDER BY q.question_id DESC
     ");
-    $questionsStmt->execute([$teacher_id]);
+    $questionsStmt->execute([$teacher_id, $teacher_id]);
     $questions = $questionsStmt->fetchAll(PDO::FETCH_ASSOC);
 
     // Get choices for all questions
@@ -83,26 +86,209 @@ try {
             --radius: 10px;
         }
 
+        .main-content > .content-area {
+            padding: 28px;
+            border: 1px solid #e8edf5;
+            border-radius: 18px;
+            box-shadow: 0 12px 32px rgba(15, 23, 42, .06);
+        }
+
+        .question-page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+            margin-bottom: 24px;
+            padding-bottom: 22px;
+            border-bottom: 1px solid var(--gray-200);
+        }
+        .question-page-heading h2 {
+            margin: 0 0 6px;
+            color: var(--gray-900);
+            font-size: clamp(1.25rem, 2vw, 1.55rem);
+            letter-spacing: -.025em;
+        }
+        .question-page-description {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            max-width: 560px;
+            color: var(--gray-600);
+            font-size: .9rem;
+            line-height: 1.5;
+        }
+        .question-page-description i {
+            margin-top: 3px;
+            color: var(--pri);
+        }
+        .question-page-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .question-page-actions > .btn,
+        .question-page-actions > .btn-ai-open {
+            min-height: 42px;
+            justify-content: center;
+            padding: 10px 15px;
+            border-radius: 9px;
+            white-space: nowrap;
+        }
+
+        .question-search-panel {
+            margin-bottom: 16px;
+        }
+        .question-search-panel .search-input-wrapper {
+            max-width: none;
+        }
+        .question-search-panel .search-input-ui {
+            min-height: 46px;
+            padding: 12px 16px 12px 44px;
+            border: 1px solid var(--gray-200);
+            border-radius: 10px;
+            background: #fff;
+            box-shadow: none;
+            font-size: .95rem;
+        }
+        .question-search-panel .search-input-ui:focus {
+            border-color: #a5b4fc;
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, .1);
+        }
+        .question-search-panel .search-icon-ui {
+            left: 16px;
+            right: auto;
+            color: var(--gray-600);
+            font-size: 15px;
+        }
+        .question-list-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin: 22px 0 14px;
+        }
+        .question-list-heading h3 {
+            margin: 0;
+            color: var(--gray-900);
+            font-size: 1rem;
+            font-weight: 700;
+        }
+        .question-result-count {
+            color: var(--gray-600);
+            font-size: .85rem;
+            font-weight: 600;
+        }
+
+        .question-filters {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 22px;
+            padding: 18px;
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
+            background: #f8fafc;
+        }
+        .question-filters-header {
+            display: flex;
+            grid-column: 1 / -1;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 1px;
+        }
+        .question-filters-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--gray-900);
+            font-size: .88rem;
+            font-weight: 700;
+        }
+        .question-filters-title i { color: var(--pri); }
+        .question-filter-reset {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 9px;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            color: var(--pri);
+            font: inherit;
+            font-size: .82rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .question-filter-reset:hover { background: var(--pri-50); }
+        .question-filters .filter-group {
+            display: flex;
+            min-width: 0;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 7px;
+        }
+        .question-filters .filter-group label {
+            color: var(--gray-700);
+            font-size: .78rem;
+            font-weight: 700;
+        }
+        .question-filters .filter-group select {
+            width: 100%;
+            min-width: 0;
+            min-height: 42px;
+            padding: 9px 34px 9px 11px;
+            border: 1px solid var(--gray-200);
+            border-radius: 8px;
+            background-color: #fff;
+            color: var(--gray-700);
+            font-size: .85rem;
+        }
+        .question-no-results {
+            padding: 42px 20px;
+            border: 1px dashed var(--gray-300);
+            border-radius: 14px;
+            background: #f8fafc;
+            color: var(--gray-600);
+            text-align: center;
+        }
+        .question-no-results[hidden] { display: none; }
+        .question-no-results i {
+            display: block;
+            margin-bottom: 12px;
+            color: #94a3b8;
+            font-size: 1.5rem;
+        }
+        .question-no-results strong {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--gray-900);
+        }
+
         /* Card Container & Header Layout Styles */
         .question-card {
             background: #fff;
-            border: 1.5px solid var(--gray-200);
-            border-radius: 12px;
-            padding: 18px 24px;
-            margin-bottom: 16px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-            transition: border-color .15s ease;
+            border: 1px solid var(--gray-200);
+            border-radius: 14px;
+            padding: 20px 22px;
+            box-shadow: 0 3px 10px rgba(15, 23, 42, .035);
+            transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
         }
         .question-card:hover {
-            border-color: var(--gray-300);
+            border-color: #c7d2fe;
+            box-shadow: 0 8px 22px rgba(15, 23, 42, .07);
+            transform: translateY(-1px);
         }
 
         .card-header-flex {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
-            gap: 16px;
-            margin-bottom: 12px;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 16px;
         }
 
         .tag-badge-group {
@@ -112,6 +298,23 @@ try {
             flex-wrap: wrap;
             row-gap: 8px;
             flex: 1;
+        }
+
+        .question-card-prompt {
+            margin-bottom: 14px;
+            color: var(--gray-900);
+            font-size: 1rem;
+            font-weight: 650;
+            line-height: 1.6;
+            overflow-wrap: anywhere;
+        }
+        .question-card .choices-preview-grid {
+            padding-top: 14px;
+            border-top: 1px solid #eef2f7;
+        }
+        .question-card .choice-pill {
+            max-width: 100%;
+            overflow-wrap: anywhere;
         }
 
         .btn-ai-open {
@@ -226,11 +429,11 @@ try {
         .ai-draft-card:hover { border-color: #cbd5e1; }
 
         /* Extended Badges Styling */
-        .badge-type { background: #fef3c7; color: #b45309; padding: 5px 12px; border-radius: 14px; font-weight: 700; text-transform: capitalize; font-size: 0.78rem; white-space: nowrap; }
-        .badge-vis { background: #e2e8f0; color: #475569; padding: 5px 12px; border-radius: 14px; font-weight: 600; font-size: 0.78rem; white-space: nowrap; }
+        .badge-type { background: #fff7dd; color: #9a5b00; padding: 5px 11px; border-radius: 999px; font-weight: 700; text-transform: capitalize; font-size: 0.76rem; white-space: nowrap; }
+        .badge-vis { background: #f1f5f9; color: #475569; padding: 5px 11px; border-radius: 999px; font-weight: 600; font-size: 0.76rem; white-space: nowrap; }
         .badge-ai { background: linear-gradient(135deg, #a855f7, #ec4899); color: #ffffff; padding: 5px 12px; border-radius: 14px; font-weight: 700; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 5px rgba(168, 85, 247, 0.3); white-space: nowrap; }
         .badge-manual { background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; padding: 5px 12px; border-radius: 14px; font-weight: 600; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-        .meta-tag { color: #64748b; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; background: #f8fafc; padding: 4px 10px; border-radius: 8px; border: 1px solid #f1f5f9; }
+        .meta-tag { color: #64748b; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 6px; white-space: normal; background: #f8fafc; padding: 5px 10px; border-radius: 999px; border: 1px solid #eef2f7; }
 
         /* Interactive Choice Buttons for Main View */
         .choices-preview-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
@@ -269,6 +472,443 @@ try {
             color: #fff; background: var(--pri); border-color: var(--pri);
         }
         .question-page-button:disabled { color: var(--gray-300); cursor: not-allowed; }
+
+        .edit-permission-requests {
+            margin: 22px 0;
+            padding: 22px;
+            border: 1px solid #c7d2fe;
+            border-left: 4px solid var(--pri);
+            border-radius: 14px;
+            background: linear-gradient(135deg, #f8faff, #fff 72%);
+            box-shadow: 0 8px 24px rgba(15, 23, 42, .05);
+        }
+        .edit-permission-requests[hidden] { display: none; }
+        .edit-permission-requests-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .edit-permission-requests-icon {
+            display: grid;
+            width: 40px;
+            height: 40px;
+            flex: 0 0 40px;
+            place-items: center;
+            border-radius: 12px;
+            background: var(--pri-100);
+            color: var(--pri);
+        }
+        .edit-permission-requests-header h3 {
+            margin: 0 0 4px;
+            color: var(--gray-900);
+            font-size: 1rem;
+        }
+        .edit-permission-requests-header p {
+            margin: 0;
+            color: var(--gray-600);
+            font-size: .875rem;
+            line-height: 1.5;
+        }
+        .edit-permission-request {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            padding: 16px;
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
+            background: #fff;
+            box-shadow: 0 2px 6px rgba(15, 23, 42, .035);
+        }
+        .edit-permission-request + .edit-permission-request {
+            margin-top: 10px;
+        }
+        .edit-permission-request-details {
+            min-width: 0;
+        }
+        .edit-permission-request-person {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--gray-900);
+            font-size: .9rem;
+        }
+        .edit-permission-request-question {
+            color: var(--gray-600);
+            font-size: .875rem;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+        .edit-permission-request-actions {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .edit-permission-request-actions .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            min-width: 94px;
+            padding: 9px 13px;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+        .question-card-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .question-card-actions .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            min-height: 36px;
+            border-radius: 8px;
+        }
+        .question-card-actions .permission-status {
+            cursor: default;
+        }
+        #editQuestionModal {
+            padding: 20px;
+            overflow-y: auto;
+        }
+        #editQuestionModal .edit-question-modal {
+            display: flex;
+            width: min(760px, 100%);
+            max-width: 760px;
+            max-height: min(820px, calc(100vh - 40px));
+            flex-direction: column;
+            margin: auto;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            box-shadow: 0 24px 70px rgba(15, 23, 42, .24);
+        }
+        #editQuestionModal .modal-header {
+            flex: 0 0 auto;
+            padding: 18px 24px;
+            background: #fff;
+        }
+        #editQuestionModal .modal-header h3 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0;
+            color: var(--gray-900);
+            font-size: 1.05rem;
+        }
+        #editQuestionModal #editQuestionForm {
+            display: flex;
+            min-height: 0;
+            flex-direction: column;
+            gap: 16px;
+            padding: 22px 24px 0;
+            overflow-y: auto;
+        }
+        #editQuestionModal .form-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+        #editQuestionModal .form-group {
+            min-width: 0;
+            margin: 0;
+        }
+        #editQuestionModal .form-group label {
+            line-height: 1.4;
+        }
+        #editQuestionModal .form-group input,
+        #editQuestionModal .form-group select,
+        #editQuestionModal .form-group textarea {
+            box-sizing: border-box;
+            max-width: 100%;
+        }
+        #editQuestionModal .choices-section,
+        #editQuestionModal .trueFalse-section {
+            margin: 0;
+        }
+        #editQuestionModal #editQuestionForm > .modal-actions {
+            position: sticky;
+            bottom: 0;
+            display: flex;
+            flex: 0 0 auto;
+            justify-content: flex-end;
+            gap: 10px;
+            margin: auto -24px 0;
+            padding: 16px 24px;
+            border-top: 1px solid var(--gray-200);
+            background: rgba(255, 255, 255, .97);
+        }
+        @media (max-width: 600px) {
+            #editQuestionModal {
+                padding: 12px;
+                align-items: center;
+            }
+            #editQuestionModal .edit-question-modal {
+                width: 100%;
+                max-height: calc(100vh - 24px);
+                border-radius: 13px;
+            }
+            #editQuestionModal .modal-header {
+                padding: 15px 18px;
+            }
+            #editQuestionModal #editQuestionForm {
+                gap: 14px;
+                padding: 18px 18px 0;
+            }
+            #editQuestionModal .form-row {
+                grid-template-columns: minmax(0, 1fr);
+                gap: 14px;
+            }
+            #editQuestionModal #editQuestionForm > .modal-actions {
+                margin: auto -18px 0;
+                padding: 12px 18px;
+            }
+            #editQuestionModal .modal-actions .btn {
+                flex: 1;
+                justify-content: center;
+            }
+        }
+        #addQuestionModal,
+        #editQuestionModal {
+            box-sizing: border-box;
+            padding: 16px;
+            overflow-y: auto;
+        }
+        #addQuestionModal .question-entry-modal,
+        #editQuestionModal .question-entry-modal {
+            box-sizing: border-box;
+            display: flex;
+            flex: 0 1 760px;
+            width: min(760px, calc(100vw - 32px));
+            max-width: 760px;
+            max-height: min(820px, calc(100vh - 32px));
+            flex-direction: column;
+            margin: auto;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            box-shadow: 0 24px 70px rgba(15, 23, 42, .24);
+        }
+        #addQuestionModal .modal-header,
+        #editQuestionModal .modal-header {
+            flex: 0 0 auto;
+            padding: 18px 26px;
+            background: #fff;
+        }
+        #addQuestionModal .modal-header h3,
+        #editQuestionModal .modal-header h3 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0;
+            color: var(--gray-900);
+            font-size: 1.05rem;
+        }
+        #addQuestionModal .question-entry-form,
+        #editQuestionModal .question-entry-form {
+            display: flex;
+            min-height: 0;
+            flex-direction: column;
+            gap: 16px;
+            padding: 22px 26px 0;
+            overflow-y: auto;
+        }
+        #addQuestionModal .question-entry-form .form-row,
+        #editQuestionModal .question-entry-form .form-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+            margin: 0;
+        }
+        #addQuestionModal .question-entry-form .form-group,
+        #editQuestionModal .question-entry-form .form-group {
+            min-width: 0;
+            margin: 0;
+        }
+        #addQuestionModal .question-entry-form > .form-row:nth-of-type(2),
+        #editQuestionModal .question-entry-form > .form-row:nth-of-type(2) {
+            grid-template-columns: minmax(0, 1fr);
+        }
+        #addQuestionModal .question-entry-form .form-group label,
+        #editQuestionModal .question-entry-form .form-group label {
+            margin-bottom: 7px;
+            color: var(--gray-700);
+            font-size: .78rem;
+            font-weight: 700;
+            letter-spacing: .035em;
+        }
+        #addQuestionModal .question-entry-form .form-group input,
+        #addQuestionModal .question-entry-form .form-group select,
+        #addQuestionModal .question-entry-form .form-group textarea,
+        #editQuestionModal .question-entry-form .form-group input,
+        #editQuestionModal .question-entry-form .form-group select,
+        #editQuestionModal .question-entry-form .form-group textarea {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+            min-height: 44px;
+            border: 1px solid #dbe3ef;
+            border-radius: 10px;
+            background: #f8fafc;
+            color: var(--gray-900);
+            font-size: .9rem;
+        }
+        #addQuestionModal .question-entry-form .form-group textarea,
+        #editQuestionModal .question-entry-form .form-group textarea {
+            min-height: 112px;
+            resize: vertical;
+        }
+        #addQuestionModal .question-entry-form .choices-section,
+        #addQuestionModal .question-entry-form .trueFalse-section,
+        #editQuestionModal .question-entry-form .choices-section,
+        #editQuestionModal .question-entry-form .trueFalse-section {
+            margin: 0;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+        }
+        #addQuestionModal .question-entry-form > .modal-actions,
+        #editQuestionModal .question-entry-form > .modal-actions {
+            position: sticky;
+            bottom: 0;
+            display: flex;
+            flex: 0 0 auto;
+            justify-content: flex-end;
+            gap: 10px;
+            margin: auto -26px 0;
+            padding: 14px 26px;
+            border-top: 1px solid var(--gray-200);
+            background: rgba(255, 255, 255, .97);
+        }
+        #addQuestionModal .question-entry-form > .modal-actions .btn,
+        #editQuestionModal .question-entry-form > .modal-actions .btn {
+            min-width: 120px;
+            min-height: 42px;
+            justify-content: center;
+            border-radius: 9px;
+        }
+        @media (max-width: 600px) {
+            #addQuestionModal,
+            #editQuestionModal {
+                padding: 12px;
+            }
+            #addQuestionModal .question-entry-modal,
+            #editQuestionModal .question-entry-modal {
+                width: calc(100vw - 24px);
+                max-height: calc(100vh - 24px);
+                border-radius: 13px;
+            }
+            #addQuestionModal .modal-header,
+            #editQuestionModal .modal-header {
+                padding: 15px 18px;
+            }
+            #addQuestionModal .question-entry-form,
+            #editQuestionModal .question-entry-form {
+                gap: 14px;
+                padding: 18px 18px 0;
+            }
+            #addQuestionModal .question-entry-form .form-row,
+            #editQuestionModal .question-entry-form .form-row {
+                grid-template-columns: minmax(0, 1fr);
+                gap: 14px;
+            }
+            #addQuestionModal .question-entry-form > .modal-actions,
+            #editQuestionModal .question-entry-form > .modal-actions {
+                margin: auto -18px 0;
+                padding: 12px 18px;
+            }
+            #addQuestionModal .question-entry-form > .modal-actions .btn,
+            #editQuestionModal .question-entry-form > .modal-actions .btn {
+                flex: 1;
+                min-width: 0;
+            }
+        }
+        #questionEditHistoryModal {
+            padding: 16px;
+            overflow-y: auto;
+        }
+        #questionEditHistoryModal .question-history-modal {
+            width: min(680px, calc(100vw - 32px));
+            max-width: 680px;
+            max-height: calc(100vh - 32px);
+            overflow: hidden;
+        }
+        #questionEditHistoryList {
+            max-height: calc(100vh - 180px);
+            overflow-y: auto;
+        }
+        .question-history-entry {
+            margin-bottom: 12px;
+            padding: 15px 16px;
+            border: 1px solid var(--gray-200);
+            border-radius: 11px;
+            background: #fff;
+        }
+        .question-history-entry:last-child { margin-bottom: 0; }
+        .question-history-entry-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+            margin-bottom: 9px;
+        }
+        .question-history-editor { color: var(--gray-900); font-weight: 700; }
+        .question-history-date { color: var(--gray-600); font-size: .82rem; }
+        .question-history-changes {
+            margin: 0;
+            padding-left: 19px;
+            color: var(--gray-700);
+            font-size: .88rem;
+            line-height: 1.55;
+            overflow-wrap: anywhere;
+        }
+        .question-history-empty {
+            padding: 28px 16px;
+            border: 1px dashed var(--gray-300);
+            border-radius: 11px;
+            color: var(--gray-600);
+            text-align: center;
+        }
+        @media (max-width: 600px) {
+            #questionEditHistoryModal { padding: 12px; }
+            #questionEditHistoryModal .question-history-modal {
+                width: calc(100vw - 24px);
+                max-height: calc(100vh - 24px);
+            }
+            .question-history-entry-header {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 4px;
+            }
+        }
+        @media (max-width: 700px) {
+            .edit-permission-requests { padding: 16px; }
+            .edit-permission-request { align-items: stretch; flex-direction: column; gap: 14px; }
+            .edit-permission-request-actions { width: 100%; }
+            .edit-permission-request-actions .btn { flex: 1; }
+            .question-card-actions { justify-content: flex-start; }
+        }
+        @media (max-width: 1100px) {
+            .question-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+        @media (max-width: 800px) {
+            .main-content > .content-area { padding: 20px; }
+            .question-page-header { align-items: flex-start; flex-direction: column; gap: 16px; }
+            .question-page-actions { justify-content: flex-start; }
+            .card-header-flex { align-items: flex-start; flex-direction: column; gap: 14px; }
+            .question-card-actions { width: 100%; justify-content: flex-start; }
+        }
+        @media (max-width: 600px) {
+            .main-content > .content-area { padding: 15px; }
+            .question-page-actions { display: grid; width: 100%; grid-template-columns: 1fr; }
+            .question-page-actions > .btn,
+            .question-page-actions > .btn-ai-open { width: 100%; }
+            .question-filters { grid-template-columns: 1fr; padding: 14px; }
+            .question-card { padding: 16px; }
+            .question-card-actions .btn[onclick^="requestQuestionEditPermission"] { flex: 1 1 100%; }
+        }
     </style>
 </head>
 <body>
@@ -297,15 +937,18 @@ try {
             <?php endif; ?>
 
             <div class="content-area">
-                <div class="section-header" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;">
-                    <div>
+                <div class="section-header question-page-header">
+                    <div class="question-page-heading">
                         <h2>My Questions</h2>
-                        <div style="color:#64748b;font-weight:600;display:flex;align-items:center;gap:0.5rem;font-size:0.95rem;">
+                        <div class="question-page-description">
                             <i class="fas fa-info-circle"></i>
                             Question creation is managed by the admin unless you have permission.
                         </div>
                     </div>
-                    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
+                    <div class="question-page-actions">
+                        <a href="question_history.php" class="btn btn-secondary">
+                            <i class="fas fa-clock-rotate-left"></i> Edit History
+                        </a>
                         <button type="button" class="btn-ai-open" onclick="openAIModal()">
                             <i class="fas fa-wand-magic-sparkles"></i> AI Assistant
                         </button>
@@ -318,18 +961,35 @@ try {
                     </div>
                 </div>
 
+                <section id="editPermissionRequests" class="edit-permission-requests" aria-labelledby="editPermissionRequestsTitle" hidden>
+                    <div class="edit-permission-requests-header">
+                        <span class="edit-permission-requests-icon" aria-hidden="true"><i class="fas fa-user-shield"></i></span>
+                        <div>
+                            <h3 id="editPermissionRequestsTitle">Edit permission requests</h3>
+                            <p>Review requests from teachers who want to edit your public questions.</p>
+                        </div>
+                    </div>
+                    <div id="editPermissionRequestsList"></div>
+                </section>
+
                 <!-- Search Bar -->
-                <div class="search-bar-ui">
-                    <div class="search-input-wrapper" style="margin-left:0;">
-                        <input type="text" id="liveSearchInput" class="form-control search-input-ui" placeholder="Search questions..." oninput="filterQuestions()">
+                <div class="search-bar-ui question-search-panel">
+                    <div class="search-input-wrapper">
+                        <input type="search" id="liveSearchInput" class="form-control search-input-ui" placeholder="Search by question, author, lesson, or answer..." aria-label="Search questions" oninput="filterQuestions()">
                         <span class="search-icon-ui"><i class="fas fa-search"></i></span>
                     </div>
                 </div>
 
                 <!-- Filter Bar -->
-                <div class="filter-bar">
+                <div class="filter-bar question-filters">
+                    <div class="question-filters-header">
+                        <span class="question-filters-title"><i class="fas fa-sliders-h" aria-hidden="true"></i> Refine questions</span>
+                        <button type="button" class="question-filter-reset" onclick="resetQuestionFilters()">
+                            <i class="fas fa-undo-alt" aria-hidden="true"></i> Reset filters
+                        </button>
+                    </div>
                     <div class="filter-group">
-                        <label>Filter by Lesson:</label>
+                        <label for="filterLesson">Lesson</label>
                         <select id="filterLesson" onchange="filterQuestions()">
                             <option value="">All Lessons</option>
                             <?php foreach ($lessons as $lesson): ?>
@@ -340,7 +1000,7 @@ try {
                         </select>
                     </div>
                     <div class="filter-group">
-                        <label>Filter by Type:</label>
+                        <label for="filterType">Question type</label>
                         <select id="filterType" onchange="filterQuestions()">
                             <option value="">All Types</option>
                             <option value="mcq">Multiple Choice</option>
@@ -349,7 +1009,7 @@ try {
                         </select>
                     </div>
                     <div class="filter-group">
-                        <label>Visibility:</label>
+                        <label for="filterVisibility">Visibility</label>
                         <select id="filterVisibility" onchange="filterQuestions()">
                             <option value="">All</option>
                             <option value="private">Private</option>
@@ -358,7 +1018,7 @@ try {
                     </div>
                     <!-- STRICT FILTER: SOURCE TYPE -->
                     <div class="filter-group">
-                        <label>Source:</label>
+                        <label for="filterSource">Source</label>
                         <select id="filterSource" onchange="filterQuestions()">
                             <option value="">All Sources</option>
                             <option value="manual">Manual Questions</option>
@@ -366,7 +1026,7 @@ try {
                         </select>
                     </div>
                     <div class="filter-group">
-                        <label>Status:</label>
+                        <label for="filterArchive">Status</label>
                         <select id="filterArchive" onchange="filterQuestions()">
                             <option value="active">Active Questions</option>
                             <option value="archived">Archived Questions</option>
@@ -375,10 +1035,19 @@ try {
                     </div>
                 </div>
 
+                <div class="question-list-heading">
+                    <h3>Question library</h3>
+                    <span id="questionResultCount" class="question-result-count" role="status" aria-live="polite"></span>
+                </div>
+
                 <!-- Questions List Container -->
                 <div class="questions-container" id="questionsContainer">
                     <?php if (empty($questions)): ?>
-                        <div style="text-align:center; padding: 40px; color: #64748b; font-weight:600;">No questions found.</div>
+                        <div class="question-no-results">
+                            <i class="far fa-folder-open" aria-hidden="true"></i>
+                            <strong>Your question library is empty</strong>
+                            <span>Add a question or use the AI assistant to get started.</span>
+                        </div>
                     <?php else: ?>
                         <?php foreach ($questions as $q): 
                             $isAi = (isset($q['is_ai_generated']) && (int)$q['is_ai_generated'] === 1) ? '1' : '0';
@@ -407,15 +1076,37 @@ try {
                                     <span class="meta-tag"><i class="fas fa-user"></i> By: <?php echo htmlspecialchars(($q['first_name'] ?? 'John') . ' ' . ($q['last_name'] ?? 'Doe')); ?></span>
                                 </div>
 
-                                <div style="display:flex; gap:6px; flex-shrink:0;">
-                                    <button class="btn btn-sm btn-primary" style="padding:6px 10px;" onclick="editQuestion(<?php echo $q['question_id']; ?>)"><i class="fas fa-edit"></i></button>
-                                    <button class="btn btn-sm <?php echo !empty($q['is_archived']) ? 'btn-success' : 'btn-danger'; ?>" style="padding:6px 10px;" onclick="toggleArchiveQuestion(<?php echo $q['question_id']; ?>, <?php echo !empty($q['is_archived']) ? 'true' : 'false'; ?>)" title="<?php echo !empty($q['is_archived']) ? 'Unarchive question' : 'Archive question'; ?>">
-                                        <i class="fas <?php echo !empty($q['is_archived']) ? 'fa-box-open' : 'fa-box-archive'; ?>"></i>
-                                    </button>
+                                <div class="question-card-actions">
+                                    <?php if ((int) $q['created_by_teacher_id'] === (int) $teacher_id || ($q['edit_permission_status'] ?? '') === 'approved'): ?>
+                                        <button class="btn btn-sm btn-primary" aria-label="Edit question" title="Edit question" onclick="editQuestion(<?php echo (int) $q['question_id']; ?>)"><i class="fas fa-edit"></i><span>Edit</span></button>
+                                    <?php endif; ?>
+                                    <?php if ((int) $q['created_by_teacher_id'] === (int) $teacher_id): ?>
+                                        <button class="btn btn-sm <?php echo !empty($q['is_archived']) ? 'btn-success' : 'btn-danger'; ?>" onclick="toggleArchiveQuestion(<?php echo (int) $q['question_id']; ?>, <?php echo !empty($q['is_archived']) ? 'true' : 'false'; ?>)" title="<?php echo !empty($q['is_archived']) ? 'Unarchive question' : 'Archive question'; ?>" aria-label="<?php echo !empty($q['is_archived']) ? 'Unarchive question' : 'Archive question'; ?>">
+                                            <i class="fas <?php echo !empty($q['is_archived']) ? 'fa-box-open' : 'fa-box-archive'; ?>"></i><span><?php echo !empty($q['is_archived']) ? 'Unarchive' : 'Archive'; ?></span>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="showQuestionEditHistory(<?php echo (int) $q['question_id']; ?>)" title="View edit history" aria-label="View edit history">
+                                            <i class="fas fa-clock-rotate-left"></i><span>Edit history</span>
+                                        </button>
+                                    <?php endif; ?>
+                                    <?php if ((int) $q['created_by_teacher_id'] !== (int) $teacher_id): ?>
+                                        <?php if (($q['edit_permission_status'] ?? '') === 'approved'): ?>
+                                            <button type="button" class="btn btn-sm btn-success permission-status" disabled>
+                                                <i class="fas fa-check"></i> Permission approved
+                                            </button>
+                                        <?php elseif (($q['edit_permission_status'] ?? '') === 'pending'): ?>
+                                            <button type="button" class="btn btn-sm btn-secondary permission-status" disabled>
+                                                <i class="fas fa-clock"></i> Request pending
+                                            </button>
+                                        <?php else: ?>
+                                            <button type="button" class="btn btn-sm btn-secondary" onclick="requestQuestionEditPermission(<?php echo (int) $q['question_id']; ?>, this)">
+                                                <i class="fas fa-user-shield"></i> Request edit permission
+                                            </button>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
                                 </div>
                             </div>
 
-                            <div style="font-weight:600; font-size:1rem; color:#0f172a; margin-bottom:12px; line-height:1.4;">
+                            <div class="question-card-prompt">
                                 <?php echo htmlspecialchars($q['question_text']); ?>
                             </div>
 
@@ -432,6 +1123,11 @@ try {
                         </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
+                    <div id="questionNoResults" class="question-no-results" hidden>
+                        <i class="fas fa-search" aria-hidden="true"></i>
+                        <strong>No matching questions</strong>
+                        <span>Try changing your search or resetting the filters.</span>
+                    </div>
                 </div>
                 <nav class="question-pagination" id="questionPagination" aria-label="Question list pagination">
                     <span class="question-pagination-summary" id="questionPaginationSummary" role="status" aria-live="polite"></span>
@@ -443,24 +1139,32 @@ try {
 
     <!-- ADD QUESTION MODAL -->
     <div class="modal" id="addQuestionModal">
-        <div class="modal-content modal-lg">
+        <div class="modal-content modal-lg question-entry-modal">
             <div class="modal-header">
                 <h3><i class="fas fa-plus-circle"></i> Add New Question</h3>
                 <button type="button" class="close-btn" onclick="closeModal('addQuestionModal')">&times;</button>
             </div>
-            <form id="addQuestionForm" onsubmit="submitQuestion(event)" novalidate>
+            <form id="addQuestionForm" class="question-entry-form" onsubmit="submitQuestion(event)" novalidate>
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="questionLesson">Lesson *</label>
-                        <select id="questionLesson" name="lesson_id" required>
-                            <option value="">Select a Lesson</option>
-                            <?php foreach ($lessons as $lesson): ?>
-                            <option value="<?php echo (int)$lesson['lesson_id']; ?>">
-                                <?php echo htmlspecialchars($lesson['chapter_title'] . ' - ' . $lesson['lesson_title']); ?>
+                        <label for="questionChapter">Chapter *</label>
+                        <select id="questionChapter" required>
+                            <option value="">Select a Chapter</option>
+                            <?php foreach ($chapters as $chapter): ?>
+                            <option value="<?php echo (int) $chapter['chapter_id']; ?>">
+                                <?php echo htmlspecialchars($chapter['chapter_title']); ?>
                             </option>
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div class="form-group">
+                        <label for="questionLesson">Lesson *</label>
+                        <select id="questionLesson" name="lesson_id" required disabled>
+                            <option value="">Select a Lesson</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group">
                         <label for="questionType">Question Type *</label>
                         <select id="questionType" name="question_type" required onchange="toggleChoicesSection()">
@@ -562,25 +1266,33 @@ try {
 
     <!-- EDIT QUESTION MODAL -->
     <div class="modal" id="editQuestionModal">
-        <div class="modal-content modal-lg">
+        <div class="modal-content modal-lg edit-question-modal question-entry-modal">
             <div class="modal-header">
                 <h3><i class="fas fa-edit"></i> Edit Question</h3>
                 <button type="button" class="close-btn" onclick="closeModal('editQuestionModal')">&times;</button>
             </div>
-            <form id="editQuestionForm" onsubmit="updateQuestion(event)" novalidate>
+            <form id="editQuestionForm" class="question-entry-form" onsubmit="updateQuestion(event)" novalidate>
                 <input type="hidden" id="editQuestionId" name="question_id">
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="editQuestionLesson">Lesson *</label>
-                        <select id="editQuestionLesson" name="lesson_id" required>
-                            <option value="">Select a Lesson</option>
-                            <?php foreach ($lessons as $lesson): ?>
-                            <option value="<?php echo (int)$lesson['lesson_id']; ?>">
-                                <?php echo htmlspecialchars($lesson['chapter_title'] . ' - ' . $lesson['lesson_title']); ?>
+                        <label for="editQuestionChapter">Chapter *</label>
+                        <select id="editQuestionChapter" required>
+                            <option value="">Select a Chapter</option>
+                            <?php foreach ($chapters as $chapter): ?>
+                            <option value="<?php echo (int) $chapter['chapter_id']; ?>">
+                                <?php echo htmlspecialchars($chapter['chapter_title']); ?>
                             </option>
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div class="form-group">
+                        <label for="editQuestionLesson">Lesson *</label>
+                        <select id="editQuestionLesson" name="lesson_id" required disabled>
+                            <option value="">Select a Lesson</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group">
                         <label for="editQuestionType">Question Type *</label>
                         <select id="editQuestionType" name="question_type" required onchange="toggleEditChoicesSection()">
@@ -620,6 +1332,16 @@ try {
                     <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Update Question</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <div class="modal" id="questionEditHistoryModal">
+        <div class="modal-content question-history-modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-clock-rotate-left"></i> Question Edit History</h3>
+                <button type="button" class="close-btn" onclick="closeModal('questionEditHistoryModal')" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body" id="questionEditHistoryList" aria-live="polite"></div>
         </div>
     </div>
 
@@ -736,12 +1458,256 @@ try {
         const currentTeacherId = <?php echo json_encode((int)$teacher_id); ?>;
         window.useServerQuestionMarkup = true;
 
+        function updateQuestionLessonOptions(chapterSelectId, lessonSelectId, selectedLessonId) {
+            const chapterSelect = document.getElementById(chapterSelectId);
+            const lessonSelect = document.getElementById(lessonSelectId);
+            const chapterId = chapterSelect.value;
+
+            lessonSelect.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = chapterId ? 'Select a Lesson' : 'Select a Chapter First';
+            lessonSelect.appendChild(placeholder);
+
+            const chapterLessons = lessonsData.filter(lesson => String(lesson.chapter_id) === String(chapterId));
+            chapterLessons.forEach(lesson => {
+                const option = document.createElement('option');
+                option.value = lesson.lesson_id;
+                option.textContent = lesson.lesson_title;
+                lessonSelect.appendChild(option);
+            });
+
+            lessonSelect.disabled = chapterLessons.length === 0;
+            if (selectedLessonId && chapterLessons.some(lesson => String(lesson.lesson_id) === String(selectedLessonId))) {
+                lessonSelect.value = String(selectedLessonId);
+            }
+        }
+
+        document.getElementById('questionChapter').addEventListener('change', function() {
+            updateQuestionLessonOptions('questionChapter', 'questionLesson');
+        });
+        document.getElementById('editQuestionChapter').addEventListener('change', function() {
+            updateQuestionLessonOptions('editQuestionChapter', 'editQuestionLesson');
+        });
+        updateQuestionLessonOptions('questionChapter', 'questionLesson');
+        updateQuestionLessonOptions('editQuestionChapter', 'editQuestionLesson');
+
+        async function showQuestionEditHistory(questionId) {
+            const list = document.getElementById('questionEditHistoryList');
+            list.innerHTML = '<div class="question-history-empty"><i class="fas fa-spinner fa-spin"></i> Loading edit history...</div>';
+            openModal('questionEditHistoryModal');
+
+            try {
+                const response = await fetch(`../api/question_api.php?action=get_question_edit_history&id=${encodeURIComponent(questionId)}`);
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'Unable to load question edit history.');
+                }
+
+                list.innerHTML = '';
+                if (!Array.isArray(result.data) || result.data.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.className = 'question-history-empty';
+                    empty.textContent = 'No edits have been recorded for this question yet.';
+                    list.appendChild(empty);
+                    return;
+                }
+
+                const fieldLabels = {
+                    lesson_id: 'Lesson',
+                    question_type: 'Question type',
+                    visibility: 'Visibility',
+                    question_text: 'Question text',
+                    choices: 'Answer choices'
+                };
+                result.data.forEach(entry => {
+                    const card = document.createElement('article');
+                    card.className = 'question-history-entry';
+                    const header = document.createElement('div');
+                    header.className = 'question-history-entry-header';
+                    const editor = document.createElement('strong');
+                    editor.className = 'question-history-editor';
+                    editor.textContent = entry.editor_name || 'Unknown editor';
+                    const date = document.createElement('time');
+                    date.className = 'question-history-date';
+                    date.dateTime = entry.edited_at || '';
+                    const parsedDate = new Date(String(entry.edited_at || '').replace(' ', 'T'));
+                    date.textContent = Number.isNaN(parsedDate.getTime()) ? (entry.edited_at || '') : parsedDate.toLocaleString();
+                    header.append(editor, date);
+                    card.appendChild(header);
+
+                    const changes = document.createElement('ul');
+                    changes.className = 'question-history-changes';
+                    const beforeData = entry.before_data || {};
+                    const afterData = entry.after_data || {};
+                    Object.keys(fieldLabels).forEach(key => {
+                        if (JSON.stringify(beforeData[key]) === JSON.stringify(afterData[key])) return;
+                        const change = document.createElement('li');
+                        change.textContent = fieldLabels[key] + ' changed';
+                        changes.appendChild(change);
+                    });
+                    if (!changes.children.length) {
+                        const unchanged = document.createElement('li');
+                        unchanged.textContent = 'Question was saved without a detected field change.';
+                        changes.appendChild(unchanged);
+                    }
+                    card.appendChild(changes);
+                    list.appendChild(card);
+                });
+            } catch (error) {
+                list.innerHTML = '';
+                const errorMessage = document.createElement('div');
+                errorMessage.className = 'question-history-empty';
+                errorMessage.textContent = error.message || 'Unable to load question edit history.';
+                list.appendChild(errorMessage);
+            }
+        }
+
+        async function loadEditPermissionRequests() {
+            const section = document.getElementById('editPermissionRequests');
+            const list = document.getElementById('editPermissionRequestsList');
+
+            try {
+                const response = await fetch('../api/question_api.php?action=list_edit_permission_requests');
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'Unable to load edit permission requests.');
+                }
+
+                list.innerHTML = '';
+                (result.data || []).forEach(request => {
+                    const row = document.createElement('div');
+                    row.className = 'edit-permission-request';
+                    row.dataset.requestId = request.request_id;
+
+                    const details = document.createElement('div');
+                    details.className = 'edit-permission-request-details';
+                    const requester = document.createElement('strong');
+                    requester.className = 'edit-permission-request-person';
+                    requester.textContent = `${request.requester_first_name} ${request.requester_last_name}`.trim();
+                    const question = document.createElement('div');
+                    question.className = 'edit-permission-request-question';
+                    question.textContent = request.question_text;
+                    details.append(requester, question);
+
+                    const actions = document.createElement('div');
+                    actions.className = 'edit-permission-request-actions';
+                    [
+                        { decision: 'approved', label: 'Approve', icon: 'fa-check', className: 'btn btn-success' },
+                        { decision: 'rejected', label: 'Deny', icon: 'fa-times', className: 'btn btn-secondary' }
+                    ].forEach(action => {
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.className = action.className;
+                        button.innerHTML = `<i class="fas ${action.icon}" aria-hidden="true"></i><span>${action.label}</span>`;
+                        button.addEventListener('click', function() {
+                            respondToEditPermissionRequest(request.request_id, action.decision, button);
+                        });
+                        actions.appendChild(button);
+                    });
+
+                    row.append(details, actions);
+                    list.appendChild(row);
+                });
+                section.hidden = list.children.length === 0;
+            } catch (error) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Could Not Load Requests',
+                    text: error.message || 'Unable to load edit permission requests.'
+                });
+            }
+        }
+
+        async function respondToEditPermissionRequest(requestId, decision, button) {
+            button.disabled = true;
+            const formData = new FormData();
+            formData.append('action', 'respond_edit_permission');
+            formData.append('request_id', requestId);
+            formData.append('decision', decision);
+
+            try {
+                const response = await fetch('../api/question_api.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'Unable to update the permission request.');
+                }
+
+                const row = button.closest('.edit-permission-request');
+                if (row) row.remove();
+                const section = document.getElementById('editPermissionRequests');
+                section.hidden = document.getElementById('editPermissionRequestsList').children.length === 0;
+                Swal.fire({
+                    icon: 'success',
+                    title: decision === 'approved' ? 'Permission Approved' : 'Request Denied',
+                    text: result.message
+                });
+            } catch (error) {
+                button.disabled = false;
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Could Not Update Request',
+                    text: error.message || 'Unable to update the permission request.'
+                });
+            }
+        }
+
+        async function requestQuestionEditPermission(questionId, button) {
+            button.disabled = true;
+            const formData = new FormData();
+            formData.append('action', 'request_edit_permission');
+            formData.append('question_id', questionId);
+
+            try {
+                const response = await fetch('../api/question_api.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'Unable to submit the permission request.');
+                }
+
+                button.className = result.data.status === 'approved' ? 'btn btn-sm btn-success' : 'btn btn-sm btn-secondary';
+                button.innerHTML = result.data.status === 'approved'
+                    ? '<i class="fas fa-check"></i> Permission approved'
+                    : '<i class="fas fa-clock"></i> Request pending';
+                Swal.fire({
+                    icon: result.data.status === 'approved' ? 'success' : 'info',
+                    title: result.data.status === 'approved' ? 'Permission Granted' : 'Request Sent',
+                    text: result.message
+                });
+            } catch (error) {
+                button.disabled = false;
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Request Failed',
+                    text: error.message || 'Unable to submit the permission request.'
+                });
+            }
+        }
+
+        function resetQuestionFilters() {
+            document.getElementById('liveSearchInput').value = '';
+            document.getElementById('filterLesson').value = '';
+            document.getElementById('filterType').value = '';
+            document.getElementById('filterVisibility').value = '';
+            document.getElementById('filterSource').value = '';
+            document.getElementById('filterArchive').value = 'active';
+            filterQuestions();
+        }
+
         // Prevent external scripts from overwriting server-rendered cards on DOM ready
         document.addEventListener("DOMContentLoaded", function() {
             const container = document.getElementById('questionsContainer');
             if (container && container.children.length > 0) {
                 window.initialRenderDone = true;
             }
+            filterQuestions();
+            loadEditPermissionRequests();
         });
 
         function filterQuestions() {
@@ -749,14 +1715,17 @@ try {
             const type = document.getElementById('filterType').value;
             const visibility = document.getElementById('filterVisibility').value;
             const source = document.getElementById('filterSource')?.value || '';
+            const archiveStatus = document.getElementById('filterArchive').value;
             const search = document.getElementById('liveSearchInput')?.value.toLowerCase().trim() || '';
 
             const cards = document.querySelectorAll('.question-card');
+            let visibleCount = 0;
             cards.forEach(card => {
                 const cardLesson = card.getAttribute('data-lesson');
                 const cardType = card.getAttribute('data-type');
                 const cardVisibility = card.getAttribute('data-visibility');
                 const cardIsAi = card.getAttribute('data-ai');
+                const isArchived = card.getAttribute('data-archived') === '1';
                 const text = card.innerText.toLowerCase();
 
                 let match = true;
@@ -765,10 +1734,20 @@ try {
                 if (visibility && cardVisibility !== visibility) match = false;
                 if (source === 'ai' && cardIsAi !== '1') match = false;
                 if (source === 'manual' && cardIsAi === '1') match = false;
+                if (archiveStatus === 'active' && isArchived) match = false;
+                if (archiveStatus === 'archived' && !isArchived) match = false;
                 if (search && !text.includes(search)) match = false;
 
                 card.style.display = match ? 'block' : 'none';
+                if (match) visibleCount++;
             });
+
+            const countLabel = document.getElementById('questionResultCount');
+            const noResults = document.getElementById('questionNoResults');
+            countLabel.textContent = cards.length === 0
+                ? '0 questions'
+                : 'Showing ' + visibleCount + ' of ' + cards.length + ' questions';
+            noResults.hidden = cards.length === 0 || visibleCount > 0;
         }
 
         /* --- ACCURACY PROOF TOGGLE --- */

@@ -110,13 +110,19 @@ foreach ($organizedChapters as $chapterId => $chapter) {
 $availableLessonIds = array_values(array_unique($availableLessonIds));
 
 $questionsStmt = $db->prepare(
-    "SELECT q.*, l.lesson_id, l.lesson_title, c.chapter_title, c.chapter_id
+    "SELECT q.*, l.lesson_id, l.lesson_title, c.chapter_title, c.chapter_id,
+            NULLIF(TRIM(CONCAT(t.first_name, ' ', t.last_name)), '') AS question_author,
+            edit_request.status AS edit_permission_status
      FROM questions_master q
      JOIN lessons l ON q.lesson_id = l.lesson_id
      JOIN chapters c ON l.chapter_id = c.chapter_id
+     LEFT JOIN teachers t ON q.created_by_teacher_id = t.teacher_id
+     LEFT JOIN question_edit_requests edit_request
+        ON edit_request.question_id = q.question_id
+        AND edit_request.requester_teacher_id = ?
      WHERE q.visibility = 'public' OR q.created_by_teacher_id = ?"
 );
-$questionsStmt->execute([$teacher_id]);
+$questionsStmt->execute([$teacher_id, $teacher_id]);
 $questions = [];
 while ($row = $questionsStmt->fetch(PDO::FETCH_ASSOC)) {
     $lessonId = $row['lesson_id'];
@@ -339,6 +345,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
             if (strtotime($start_time) >= strtotime($end_time)) {
                 echo json_encode(['success' => false, 'error' => 'End time must be after start time.']);
+                exit;
+            }
+
+            if (strtotime($start_time) < time() || substr($end_time, 0, 10) < date('Y-m-d')) {
+                echo json_encode(['success' => false, 'error' => 'The quiz start time and end date cannot be in the past.']);
                 exit;
             }
 
@@ -819,6 +830,34 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
             color: var(--ink-900);
         }
 
+        .question-pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .question-pagination button {
+            padding: 8px 12px;
+            border: 1px solid var(--border-200);
+            border-radius: 8px;
+            background: #ffffff;
+            color: var(--ink-700);
+            cursor: pointer;
+        }
+
+        .question-pagination button:disabled {
+            color: var(--ink-500);
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
+        .question-pagination-status {
+            color: var(--ink-600);
+            font-size: 13px;
+        }
+
         .search-box {
             position: relative;
             max-width: 280px;
@@ -867,6 +906,10 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
             background: #f4f8ff;
         }
 
+        .question[aria-disabled="true"] {
+            cursor: not-allowed;
+        }
+
         .question input[type="checkbox"] {
             width: 18px;
             height: 18px;
@@ -876,6 +919,92 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
 
         .question-content {
             flex: 1;
+        }
+
+        .quiz-question-edit-modal {
+            width: min(680px, calc(100vw - 32px));
+            max-width: 680px;
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+        }
+        #quizQuestionEditForm {
+            padding: 22px 26px;
+        }
+        #quizQuestionEditForm .form-row {
+            gap: 16px;
+        }
+        #quizQuestionEditForm .form-group {
+            min-width: 0;
+            margin-bottom: 16px;
+        }
+        #quizQuestionEditForm input[type="text"],
+        #quizQuestionEditForm select,
+        #quizQuestionEditForm textarea {
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 42px;
+            border: 1px solid var(--border-200);
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: #fff;
+            color: var(--ink-800);
+            font: inherit;
+        }
+        #quizQuestionEditForm textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        .quiz-edit-answer-fields {
+            margin: 2px 0 16px;
+            padding: 16px;
+            border: 1px solid var(--border-200);
+            border-radius: 12px;
+            background: #f8fafc;
+        }
+        .quiz-edit-answer-fields h4 {
+            margin: 0 0 12px;
+            color: var(--ink-800);
+            font-size: .95rem;
+        }
+        .quiz-edit-choice-row {
+            display: grid;
+            grid-template-columns: 22px minmax(0, 1fr);
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 9px;
+        }
+        .quiz-edit-choice-row input[type="radio"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--primary-600);
+        }
+        .quiz-edit-answer-fields .quiz-edit-add-choice {
+            min-height: 34px;
+            padding: 6px 10px;
+        }
+        #quizQuestionEditForm .modal-actions {
+            position: sticky;
+            bottom: -22px;
+            margin: 0 -26px -22px;
+            padding: 14px 26px;
+            background: #fff;
+        }
+        @media (max-width: 600px) {
+            .quiz-question-edit-modal {
+                width: calc(100vw - 24px);
+                max-height: calc(100vh - 24px);
+            }
+            #quizQuestionEditForm {
+                padding: 18px;
+            }
+            #quizQuestionEditForm .form-row {
+                grid-template-columns: minmax(0, 1fr);
+            }
+            #quizQuestionEditForm .modal-actions {
+                bottom: -18px;
+                margin: 0 -18px -18px;
+                padding: 12px 18px;
+            }
         }
 
         .question-meta {
@@ -908,6 +1037,125 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
 
         .field-error.show { display: block; }
         .input-error { border-color: #fca5a5 !important; background: #fff5f5 !important; }
+
+        .schedule-picker {
+            position: relative;
+        }
+
+        .schedule-picker-controls {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(120px, 0.8fr);
+            gap: 8px;
+        }
+
+        .schedule-date-trigger {
+            width: 100%;
+            min-width: 0;
+            padding: 12px 14px;
+            border: 1px solid var(--border-200);
+            border-radius: var(--radius-12);
+            background: var(--bg-50);
+            color: var(--ink-900);
+            font-size: 14px;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .schedule-date-trigger:focus-visible,
+        .calendar-nav:focus-visible,
+        .calendar-day:focus-visible {
+            outline: 3px solid rgba(37, 99, 235, 0.35);
+            outline-offset: 2px;
+        }
+
+        .schedule-calendar {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            z-index: 20;
+            width: min(320px, 100%);
+            padding: 12px;
+            border: 1px solid var(--border-200);
+            border-radius: var(--radius-12);
+            background: #ffffff;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .schedule-calendar[hidden] {
+            display: none;
+        }
+
+        .calendar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .calendar-month {
+            margin: 0;
+            color: var(--ink-900);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .calendar-nav {
+            width: 34px;
+            height: 34px;
+            border: 1px solid var(--border-200);
+            border-radius: 8px;
+            background: #ffffff;
+            color: var(--ink-700);
+            cursor: pointer;
+        }
+
+        .calendar-weekdays,
+        .calendar-days {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            gap: 4px;
+            text-align: center;
+        }
+
+        .calendar-weekday {
+            padding: 5px 0;
+            color: var(--ink-500);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .calendar-day {
+            min-height: 34px;
+            border: 0;
+            border-radius: 8px;
+            background: #ffffff;
+            color: var(--ink-700);
+            cursor: pointer;
+        }
+
+        .calendar-day:hover {
+            background: var(--primary-50);
+        }
+
+        .calendar-day.outside-month {
+            color: var(--ink-500);
+        }
+
+        .calendar-day:disabled {
+            background: #f8fafc;
+            color: #cbd5e1;
+            cursor: not-allowed;
+        }
+
+        .calendar-day.selected {
+            background: var(--primary-600);
+            color: #ffffff;
+        }
+
+        .schedule-time-label {
+            margin-top: 8px;
+        }
 
         .form-actions {
             grid-column: 1 / -1;
@@ -1046,14 +1294,52 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
                         </div>
 
                         <div class="form-group">
-                            <label for="startTime">Start Time *</label>
-                            <input type="datetime-local" id="startTime" name="start_time">
+                            <label>Start Time *</label>
+                            <input type="hidden" id="startTime" name="start_time">
+                            <div class="schedule-picker" id="startTimePicker" data-input-id="startTime">
+                                <div class="schedule-picker-controls">
+                                    <button type="button" class="schedule-date-trigger" aria-label="Choose start date" aria-haspopup="dialog" aria-expanded="false">
+                                        Select date
+                                    </button>
+                                    <input type="time" class="schedule-time" aria-label="Start time">
+                                </div>
+                                <div class="schedule-calendar" role="dialog" aria-label="Choose start date" hidden>
+                                    <div class="calendar-header">
+                                        <button type="button" class="calendar-nav previous-month" aria-label="Previous month">&lt;</button>
+                                        <h3 class="calendar-month" aria-live="polite"></h3>
+                                        <button type="button" class="calendar-nav next-month" aria-label="Next month">&gt;</button>
+                                    </div>
+                                    <div class="calendar-weekdays" aria-hidden="true">
+                                        <span class="calendar-weekday">Mo</span><span class="calendar-weekday">Tu</span><span class="calendar-weekday">We</span><span class="calendar-weekday">Th</span><span class="calendar-weekday">Fr</span><span class="calendar-weekday">Sa</span><span class="calendar-weekday">Su</span>
+                                    </div>
+                                    <div class="calendar-days"></div>
+                                </div>
+                            </div>
                             <div class="field-error" data-error-for="startTime"></div>
                         </div>
 
                         <div class="form-group">
-                            <label for="endTime">End Time *</label>
-                            <input type="datetime-local" id="endTime" name="end_time">
+                            <label>End Time *</label>
+                            <input type="hidden" id="endTime" name="end_time">
+                            <div class="schedule-picker" id="endTimePicker" data-input-id="endTime">
+                                <div class="schedule-picker-controls">
+                                    <button type="button" class="schedule-date-trigger" aria-label="Choose end date" aria-haspopup="dialog" aria-expanded="false">
+                                        Select date
+                                    </button>
+                                    <input type="time" class="schedule-time" aria-label="End time">
+                                </div>
+                                <div class="schedule-calendar" role="dialog" aria-label="Choose end date" hidden>
+                                    <div class="calendar-header">
+                                        <button type="button" class="calendar-nav previous-month" aria-label="Previous month">&lt;</button>
+                                        <h3 class="calendar-month" aria-live="polite"></h3>
+                                        <button type="button" class="calendar-nav next-month" aria-label="Next month">&gt;</button>
+                                    </div>
+                                    <div class="calendar-weekdays" aria-hidden="true">
+                                        <span class="calendar-weekday">Mo</span><span class="calendar-weekday">Tu</span><span class="calendar-weekday">We</span><span class="calendar-weekday">Th</span><span class="calendar-weekday">Fr</span><span class="calendar-weekday">Sa</span><span class="calendar-weekday">Su</span>
+                                    </div>
+                                    <div class="calendar-days"></div>
+                                </div>
+                            </div>
                             <div class="field-error" data-error-for="endTime"></div>
                         </div>
 
@@ -1121,6 +1407,9 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
                                 </div>
                             </div>
                             <div class="field-error" data-error-for="questions"></div>
+                            <p id="questionScheduleNotice" role="status" style="margin: 0 0 12px; color: var(--ink-500); font-size: 13px;">
+                                Set a valid start and end time before selecting questions.
+                            </p>
 
                             <!-- Selected Questions Dynamic Container -->
                             <div id="selectedQuestionsSection" class="selected-questions-section">
@@ -1132,6 +1421,11 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
                                     </div>
                                 </div>
                                 <div id="selectedQuestionsContainer"></div>
+                                <nav id="questionPagination" class="question-pagination" aria-label="Question pages">
+                                    <button type="button" id="previousQuestionPage">Previous</button>
+                                    <span id="questionPaginationStatus" class="question-pagination-status" aria-live="polite"></span>
+                                    <button type="button" id="nextQuestionPage">Next</button>
+                                </nav>
                             </div>
 
                             <!-- Hidden Question Data Repository -->
@@ -1147,12 +1441,13 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
                                                     <?php if (!empty($questions[$lessonId])): ?>
                                                         <?php foreach ($questions[$lessonId] as $question): ?>
                                                             <div class="question" data-question-id="<?php echo $question['question_id']; ?>" data-question-text="<?php echo htmlspecialchars($question['question_text']); ?>">
-                                                                <input type="checkbox" class="source-question-cb" value="<?php echo $question['question_id']; ?>" data-lesson-id="<?php echo $lessonId; ?>">
+                                                                <input type="checkbox" class="source-question-cb" value="<?php echo $question['question_id']; ?>" data-lesson-id="<?php echo $lessonId; ?>" data-author-id="<?php echo (int) $question['created_by_teacher_id']; ?>" data-edit-permission-status="<?php echo htmlspecialchars($question['edit_permission_status'] ?? ''); ?>">
                                                                 <div class="question-content">
                                                                     <label><?php echo htmlspecialchars($question['question_text']); ?></label>
                                                                     <div class="question-meta">
                                                                         <span class="question-type <?php echo htmlspecialchars(strtolower($question['question_type'] ?? 'mcq')); ?>"><?php echo htmlspecialchars($question['question_type'] ?? 'mcq'); ?></span>
                                                                         <span>• Lesson: <?php echo htmlspecialchars($lesson['lesson_title']); ?></span>
+                                                                        <span class="question-author">• Author: <?php echo htmlspecialchars($question['question_author'] ?? 'Unknown author'); ?></span>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -1187,11 +1482,53 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
                     </div>
                 </div>
             </div>
+
+            <div class="modal" id="quizQuestionEditModal">
+                <div class="modal-content modal-lg quiz-question-edit-modal">
+                    <div class="modal-header">
+                        <h3 style="margin:0;"><i class="fas fa-edit"></i> Edit Question</h3>
+                        <button class="close-btn" type="button" onclick="closeModal('quizQuestionEditModal')" aria-label="Close">&times;</button>
+                    </div>
+                    <form id="quizQuestionEditForm" onsubmit="saveQuizQuestionEdit(event)">
+                        <input type="hidden" name="question_id" id="quizEditQuestionId">
+                        <input type="hidden" name="lesson_id" id="quizEditLessonId">
+                        <div class="form-group">
+                            <label for="quizEditQuestionText">Question</label>
+                            <textarea id="quizEditQuestionText" name="question_text" rows="3" required></textarea>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="quizEditQuestionType">Question Type</label>
+                                <select id="quizEditQuestionType" name="question_type" onchange="renderQuizEditAnswerFields()">
+                                    <option value="mcq">Multiple Choice</option>
+                                    <option value="true_false">True/False</option>
+                                    <option value="short_answer">Short Answer</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="quizEditVisibility">Visibility</label>
+                                <select id="quizEditVisibility" name="visibility">
+                                    <option value="private">Private</option>
+                                    <option value="public">Public</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="quizEditAnswerFields" class="quiz-edit-answer-fields"></div>
+                        <div class="modal-actions">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('quizQuestionEditModal')">Cancel</button>
+                            <button type="submit" class="btn btn-primary" id="quizEditSaveButton"><i class="fas fa-save"></i> Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </main>
     </div>
 
     <script>
    const quizChoices = <?php echo json_encode($choicesByQuestion); ?>;
+    const quizMinimumDate = <?php echo json_encode(date('Y-m-d')); ?>;
+   const questionsPerPage = 10;
+   var currentQuestionPage = 1;
 
     // Helper for full padding card selections
     function toggleCheckboxRow(container, event) {
@@ -1216,6 +1553,139 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
     function generateCode() {
         document.getElementById('quizCode').value = Math.random().toString(36).substring(2, 10).toUpperCase();
     }
+
+    function initSchedulePicker(pickerId) {
+        var picker = document.getElementById(pickerId);
+        var valueInput = document.getElementById(picker.getAttribute('data-input-id'));
+        var dateTrigger = picker.querySelector('.schedule-date-trigger');
+        var timeInput = picker.querySelector('.schedule-time');
+        var calendar = picker.querySelector('.schedule-calendar');
+        var monthLabel = picker.querySelector('.calendar-month');
+        var daysContainer = picker.querySelector('.calendar-days');
+        var selectedDate = quizMinimumDate;
+        var viewDate = new Date();
+        viewDate.setDate(1);
+
+        function dateKey(date) {
+            var month = String(date.getMonth() + 1).padStart(2, '0');
+            var day = String(date.getDate()).padStart(2, '0');
+            return date.getFullYear() + '-' + month + '-' + day;
+        }
+
+        function updateValue() {
+            valueInput.value = selectedDate && timeInput.value ? selectedDate + 'T' + timeInput.value : '';
+            updateQuestionSelectionAvailability();
+        }
+
+        dateTrigger.textContent = new Intl.DateTimeFormat(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        }).format(new Date(selectedDate + 'T00:00:00'));
+
+        function renderCalendar() {
+            monthLabel.textContent = new Intl.DateTimeFormat(undefined, {
+                month: 'long',
+                year: 'numeric'
+            }).format(viewDate);
+            daysContainer.innerHTML = '';
+
+            var firstOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
+            var mondayOffset = (firstOfMonth.getDay() + 6) % 7;
+            var firstVisibleDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1 - mondayOffset);
+
+            for (var index = 0; index < 42; index++) {
+                let dayDate = new Date(firstVisibleDate.getFullYear(), firstVisibleDate.getMonth(), firstVisibleDate.getDate() + index);
+                var dayButton = document.createElement('button');
+                let key = dateKey(dayDate);
+                dayButton.type = 'button';
+                dayButton.className = 'calendar-day';
+                dayButton.textContent = String(dayDate.getDate());
+                dayButton.setAttribute('aria-label', new Intl.DateTimeFormat(undefined, {
+                    dateStyle: 'full'
+                }).format(dayDate));
+                dayButton.setAttribute('aria-pressed', key === selectedDate ? 'true' : 'false');
+                dayButton.disabled = key < quizMinimumDate;
+
+                if (dayDate.getMonth() !== viewDate.getMonth()) {
+                    dayButton.classList.add('outside-month');
+                }
+                if (key === selectedDate) {
+                    dayButton.classList.add('selected');
+                }
+
+                dayButton.addEventListener('click', function(event) {
+                    selectedDate = key;
+                    dateTrigger.textContent = new Intl.DateTimeFormat(undefined, {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                    }).format(dayDate);
+                    dateTrigger.setAttribute('aria-expanded', 'false');
+                    calendar.hidden = true;
+                    updateValue();
+                    renderCalendar();
+                    dateTrigger.focus();
+                });
+                daysContainer.appendChild(dayButton);
+            }
+        }
+
+        dateTrigger.addEventListener('click', function() {
+            calendar.hidden = !calendar.hidden;
+            dateTrigger.setAttribute('aria-expanded', calendar.hidden ? 'false' : 'true');
+            if (!calendar.hidden) {
+                renderCalendar();
+                picker.querySelector('.previous-month').focus();
+            }
+        });
+
+        picker.querySelector('.previous-month').addEventListener('click', function() {
+            viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1);
+            renderCalendar();
+        });
+
+        picker.querySelector('.next-month').addEventListener('click', function() {
+            viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1);
+            renderCalendar();
+        });
+
+        timeInput.addEventListener('input', updateValue);
+        calendar.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                calendar.hidden = true;
+                dateTrigger.setAttribute('aria-expanded', 'false');
+                dateTrigger.focus();
+            }
+        });
+
+        renderCalendar();
+    }
+
+    initSchedulePicker('startTimePicker');
+    initSchedulePicker('endTimePicker');
+
+    function updateQuestionSelectionAvailability() {
+        var startValue = document.getElementById('startTime').value;
+        var endValue = document.getElementById('endTime').value;
+        var startDate = startValue ? new Date(startValue) : null;
+        var endDate = endValue ? new Date(endValue) : null;
+        var scheduleIsValid = startDate && endDate
+            && !Number.isNaN(startDate.getTime())
+            && !Number.isNaN(endDate.getTime())
+            && startDate.getTime() >= Date.now()
+            && endDate.getTime() > startDate.getTime();
+        var notice = document.getElementById('questionScheduleNotice');
+        var questionInputs = document.querySelectorAll('#selectedQuestionsContainer input[name="questions[]"]');
+
+        notice.hidden = Boolean(scheduleIsValid);
+        questionInputs.forEach(function(input) {
+            input.closest('.question').setAttribute('aria-disabled', scheduleIsValid ? 'false' : 'true');
+        });
+        return Boolean(scheduleIsValid);
+    }
+
+    updateQuestionSelectionAvailability();
 
     function toggleAllClasses(checked) {
         document.querySelectorAll('.class-assignment-checkbox').forEach(cb => cb.checked = checked);
@@ -1272,11 +1742,14 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
         if (selectedLessonIds.length === 0) {
             section.style.display = 'none';
             container.innerHTML = '';
+            currentQuestionPage = 1;
+            renderQuestionPagination();
             updateQuestionCounts();
             return;
         }
 
         section.style.display = 'block';
+        currentQuestionPage = 1;
         var checkedQuestionIds = Array.from(document.querySelectorAll('#selectedQuestionsContainer input[name="questions[]"]:checked')).map(cb => cb.value);
         container.innerHTML = '';
 
@@ -1305,6 +1778,9 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
                     id: question.getAttribute('data-question-id'),
                     text: question.getAttribute('data-question-text'),
                     type: question.querySelector('.question-type') ? question.querySelector('.question-type').textContent.trim() : 'mcq',
+                    author: question.querySelector('.question-author') ? question.querySelector('.question-author').textContent.replace(/^•\s*Author:\s*/, '').trim() : 'Unknown author',
+                    authorId: input.getAttribute('data-author-id'),
+                    editPermissionStatus: input.getAttribute('data-edit-permission-status') || '',
                     lessonTitle: questionsByLesson[lessonId].title
                 });
             }
@@ -1334,16 +1810,36 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
                             <div>${escapeHtml(qData.text)}</div>
                             <div class="question-meta">
                                 <span class="question-type ${qData.type.toLowerCase()}">${qData.type}</span>
+                                <span>• Author: ${escapeHtml(qData.author)}</span>
                             </div>
                         </div>
                         <button type="button" class="btn btn-secondary btn-sm" onclick="openChoicesModal(${qData.id}); event.stopPropagation();">
                             <i class="fas fa-eye"></i> View
                         </button>
+                        ${(Number(qData.authorId) === Number(<?php echo (int) $teacher_id; ?>) || qData.editPermissionStatus === 'approved')
+                            ? `<button type="button" class="btn btn-primary btn-sm" onclick="openQuizQuestionEdit(${qData.id}); event.stopPropagation();">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>` : ''}
+                        ${Number(qData.authorId) !== Number(<?php echo (int) $teacher_id; ?>) ? (qData.editPermissionStatus === 'approved'
+                            ? '<button type="button" class="btn btn-success btn-sm" disabled><i class="fas fa-check"></i> Permission approved</button>'
+                            : qData.editPermissionStatus === 'pending'
+                                ? '<button type="button" class="btn btn-secondary btn-sm" disabled><i class="fas fa-clock"></i> Request pending</button>'
+                                : `<button type="button" class="btn btn-secondary btn-sm request-edit-permission" onclick="requestQuestionEditPermission(${qData.id}, this); event.stopPropagation();">
+                                    <i class="fas fa-user-shield"></i> Request edit permission
+                                </button>`) : ''}
                     `;
 
                     // Entire card click selection
                     qDiv.addEventListener('click', function(e) {
                         if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+                        if (!updateQuestionSelectionAvailability()) {
+                            Swal.fire({
+                                icon: 'warning',
+                                title: 'Set a Valid Schedule',
+                                text: 'Choose a future start time and an end time after the start before selecting questions.'
+                            });
+                            return;
+                        }
                         var cb = qDiv.querySelector('input[type="checkbox"]');
                         cb.checked = !cb.checked;
                         cb.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1356,6 +1852,8 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
         });
 
         updateQuestionCounts();
+        updateQuestionSelectionAvailability();
+        renderQuestionPagination();
     }
 
     function updateQuestionCounts() {
@@ -1370,15 +1868,66 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     function filterQuestionsBySearch() {
+        currentQuestionPage = 1;
+        renderQuestionPagination();
+    }
+
+    function renderQuestionPagination() {
         var query = document.getElementById('questionSearch').value.toLowerCase().trim();
-        document.querySelectorAll('#selectedQuestionsContainer .question').forEach(q => {
-            var text = q.getAttribute('data-question-text').toLowerCase();
-            q.style.display = text.includes(query) ? 'flex' : 'none';
+        var groups = document.querySelectorAll('#selectedQuestionsContainer > div');
+        var matchingQuestions = [];
+
+        groups.forEach(function(group) {
+            group.querySelectorAll('.question').forEach(function(question) {
+                var matchesSearch = question.getAttribute('data-question-text').toLowerCase().includes(query);
+                if (matchesSearch) matchingQuestions.push(question);
+            });
         });
+
+        var pageCount = Math.max(1, Math.ceil(matchingQuestions.length / questionsPerPage));
+        currentQuestionPage = Math.min(currentQuestionPage, pageCount);
+        var firstVisibleIndex = (currentQuestionPage - 1) * questionsPerPage;
+        var lastVisibleIndex = firstVisibleIndex + questionsPerPage;
+        var visibleQuestions = new Set(matchingQuestions.slice(firstVisibleIndex, lastVisibleIndex));
+
+        groups.forEach(function(group) {
+            var hasVisibleQuestion = false;
+            group.querySelectorAll('.question').forEach(function(question) {
+                var isVisible = visibleQuestions.has(question);
+                question.style.display = isVisible ? 'flex' : 'none';
+                if (isVisible) hasVisibleQuestion = true;
+            });
+            group.style.display = hasVisibleQuestion ? '' : 'none';
+        });
+
+        var pagination = document.getElementById('questionPagination');
+        var status = document.getElementById('questionPaginationStatus');
+        var previousButton = document.getElementById('previousQuestionPage');
+        var nextButton = document.getElementById('nextQuestionPage');
+        var showingFirst = matchingQuestions.length === 0 ? 0 : firstVisibleIndex + 1;
+        var showingLast = Math.min(lastVisibleIndex, matchingQuestions.length);
+
+        pagination.hidden = false;
+        status.textContent = matchingQuestions.length === 0
+            ? 'No questions found.'
+            : 'Showing ' + showingFirst + '-' + showingLast + ' of ' + matchingQuestions.length + ' questions (page ' + currentQuestionPage + ' of ' + pageCount + ')';
+        previousButton.disabled = matchingQuestions.length === 0 || currentQuestionPage === 1;
+        nextButton.disabled = matchingQuestions.length === 0 || currentQuestionPage === pageCount;
     }
 
     document.addEventListener('DOMContentLoaded', function() {
         applyQuizTypeMode();
+        updateQuestionSelectionAvailability();
+        document.getElementById('previousQuestionPage').addEventListener('click', function() {
+            if (currentQuestionPage > 1) {
+                currentQuestionPage--;
+                renderQuestionPagination();
+            }
+        });
+        document.getElementById('nextQuestionPage').addEventListener('click', function() {
+            currentQuestionPage++;
+            renderQuestionPagination();
+        });
 
         document.addEventListener('change', function(e) {
             if (e.target.id === 'quizType') applyQuizTypeMode();
@@ -1399,6 +1948,43 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
             chapterGroup.querySelectorAll('.lesson-checkbox').forEach(cb => cb.checked = checked);
         }
         if (!skipRefresh) updateLessonFilter();
+    }
+
+    async function requestQuestionEditPermission(questionId, button) {
+        button.disabled = true;
+        var formData = new FormData();
+        formData.append('action', 'request_edit_permission');
+        formData.append('question_id', questionId);
+
+        try {
+            var response = await fetch('../api/question_api.php', {
+                method: 'POST',
+                body: formData
+            });
+            var result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'Unable to submit the permission request.');
+            }
+
+            button.className = result.data.status === 'approved'
+                ? 'btn btn-success btn-sm'
+                : 'btn btn-secondary btn-sm';
+            button.innerHTML = result.data.status === 'approved'
+                ? '<i class="fas fa-check"></i> Permission approved'
+                : '<i class="fas fa-clock"></i> Request pending';
+            Swal.fire({
+                icon: result.data.status === 'approved' ? 'success' : 'info',
+                title: result.data.status === 'approved' ? 'Permission Granted' : 'Request Sent',
+                text: result.message
+            });
+        } catch (error) {
+            button.disabled = false;
+            Swal.fire({
+                icon: 'error',
+                title: 'Request Failed',
+                text: error.message || 'Unable to submit the permission request.'
+            });
+        }
     }
 
     function openChoicesModal(questionId) {
@@ -1432,6 +2018,183 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
             .replace(/"/g, '&quot;');
     }
 
+    function renderQuizEditAnswerFields(choices) {
+        var type = document.getElementById('quizEditQuestionType').value;
+        var container = document.getElementById('quizEditAnswerFields');
+        container.innerHTML = '';
+
+        if (type === 'mcq') {
+            var heading = document.createElement('h4');
+            heading.textContent = 'Answer Choices (select the correct answer)';
+            container.appendChild(heading);
+
+            var answerChoices = Array.isArray(choices) ? choices : [];
+            if (answerChoices.length < 4) {
+                answerChoices = ['A', 'B', 'C', 'D'].map((_, index) => ({
+                    choice_text: answerChoices[index] ? answerChoices[index].choice_text : '',
+                    is_correct: answerChoices[index]
+                        ? answerChoices[index].is_correct
+                        : (index === 0 && answerChoices.length === 0 ? 1 : 0)
+                }));
+            }
+            answerChoices.forEach((choice, index) => {
+                var row = document.createElement('div');
+                row.className = 'quiz-edit-choice-row';
+
+                var correct = document.createElement('input');
+                correct.type = 'radio';
+                correct.name = 'quiz_edit_correct_choice';
+                correct.value = String(index);
+                correct.checked = Number(choice.is_correct) === 1 || (index === 0 && !answerChoices.some(item => Number(item.is_correct) === 1));
+
+                var input = document.createElement('input');
+                input.type = 'text';
+                input.name = 'quiz_edit_choices[]';
+                input.value = choice.choice_text || '';
+                input.placeholder = 'Choice ' + String.fromCharCode(65 + index);
+                input.required = true;
+
+                row.append(correct, input);
+                container.appendChild(row);
+            });
+
+            var addButton = document.createElement('button');
+            addButton.type = 'button';
+            addButton.className = 'btn btn-secondary btn-sm quiz-edit-add-choice';
+            addButton.innerHTML = '<i class="fas fa-plus"></i> Add Choice';
+            addButton.addEventListener('click', function() {
+                var currentChoices = Array.from(container.querySelectorAll('input[name="quiz_edit_choices[]"]')).map(function(input) {
+                    return { choice_text: input.value, is_correct: input.previousElementSibling.checked ? 1 : 0 };
+                });
+                currentChoices.push({ choice_text: '', is_correct: 0 });
+                renderQuizEditAnswerFields(currentChoices);
+                container.querySelectorAll('input[name="quiz_edit_choices[]"]')[currentChoices.length - 1].focus();
+            });
+            container.appendChild(addButton);
+        } else if (type === 'true_false') {
+            var correctChoice = (choices || []).find(choice => Number(choice.is_correct) === 1);
+            var correctAnswer = correctChoice ? String(correctChoice.choice_text).toLowerCase() : 'true';
+            container.innerHTML = `
+                <h4>Correct Answer</h4>
+                <label><input type="radio" name="quiz_edit_tf_answer" value="true" ${correctAnswer === 'true' ? 'checked' : ''}> True</label>
+                <label style="margin-left:16px;"><input type="radio" name="quiz_edit_tf_answer" value="false" ${correctAnswer === 'false' ? 'checked' : ''}> False</label>
+            `;
+        } else {
+            var correctChoice = (choices || []).find(choice => Number(choice.is_correct) === 1);
+            container.innerHTML = `
+                <h4>Correct Answer</h4>
+                <input type="text" name="quiz_edit_short_answer" value="${escapeHtml(correctChoice ? correctChoice.choice_text : '')}" placeholder="Enter the correct answer" required>
+            `;
+        }
+    }
+
+    async function openQuizQuestionEdit(questionId) {
+        try {
+            var response = await fetch('../api/question_api.php?action=get_question&id=' + encodeURIComponent(questionId));
+            var result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'Unable to load this question.');
+            }
+
+            var question = result.data;
+            document.getElementById('quizEditQuestionId').value = question.question_id;
+            document.getElementById('quizEditLessonId').value = question.lesson_id;
+            document.getElementById('quizEditQuestionText').value = question.question_text || '';
+            document.getElementById('quizEditQuestionType').value = question.question_type || 'mcq';
+            document.getElementById('quizEditVisibility').value = question.visibility || 'private';
+            renderQuizEditAnswerFields(question.choices || []);
+            openModal('quizQuestionEditModal');
+        } catch (error) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Unable to Edit Question',
+                text: error.message || 'Please try again.'
+            });
+        }
+    }
+
+    async function saveQuizQuestionEdit(event) {
+        event.preventDefault();
+        var form = event.target;
+        var type = document.getElementById('quizEditQuestionType').value;
+        var formData = new FormData(form);
+        formData.append('action', 'update_question');
+
+        if (type === 'mcq') {
+            var choiceInputs = Array.from(document.querySelectorAll('#quizEditAnswerFields input[name="quiz_edit_choices[]"]'));
+            var validChoices = choiceInputs.filter(input => input.value.trim() !== '');
+            if (validChoices.length < 4) {
+                Swal.fire({ icon: 'warning', title: 'Add More Choices', text: 'Multiple choice questions need at least four non-empty choices.' });
+                return;
+            }
+            var correctChoice = document.querySelector('#quizEditAnswerFields input[name="quiz_edit_correct_choice"]:checked');
+            if (!correctChoice || !choiceInputs[Number(correctChoice.value)] || !choiceInputs[Number(correctChoice.value)].value.trim()) {
+                Swal.fire({ icon: 'warning', title: 'Select the Correct Answer', text: 'Choose a non-empty answer as the correct choice.' });
+                return;
+            }
+            formData.delete('quiz_edit_choices[]');
+            choiceInputs.forEach(input => formData.append('choices[]', input.value.trim()));
+            formData.append('correct_choice', correctChoice.value);
+        } else if (type === 'true_false') {
+            var tfAnswer = document.querySelector('#quizEditAnswerFields input[name="quiz_edit_tf_answer"]:checked');
+            formData.append('tf_answer', tfAnswer ? tfAnswer.value : 'true');
+        } else {
+            var shortAnswer = form.querySelector('[name="quiz_edit_short_answer"]');
+            if (!shortAnswer || !shortAnswer.value.trim()) {
+                Swal.fire({ icon: 'warning', title: 'Correct Answer Required', text: 'Enter the correct answer before saving.' });
+                return;
+            }
+            formData.append('short_answer', shortAnswer.value.trim());
+        }
+
+        var saveButton = document.getElementById('quizEditSaveButton');
+        saveButton.disabled = true;
+        try {
+            var response = await fetch('../api/question_api.php', { method: 'POST', body: formData });
+            var result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'Unable to save the question.');
+            }
+
+            var questionId = document.getElementById('quizEditQuestionId').value;
+            var questionText = document.getElementById('quizEditQuestionText').value.trim();
+            var sourceCards = document.querySelectorAll('.question[data-question-id="' + questionId + '"]');
+            sourceCards.forEach(function(card) {
+                card.setAttribute('data-question-text', questionText);
+                var label = card.querySelector('.question-content label');
+                var textBlock = card.querySelector('.question-content > div');
+                if (label) label.textContent = questionText;
+                else if (textBlock) textBlock.textContent = questionText;
+                var typeBadge = card.querySelector('.question-type');
+                if (typeBadge) {
+                    typeBadge.textContent = type;
+                    typeBadge.className = 'question-type ' + type;
+                }
+            });
+            var choiceValues = type === 'mcq'
+                ? Array.from(document.querySelectorAll('#quizEditAnswerFields input[name="quiz_edit_choices[]"]')).map(function(input, index) {
+                    return { choice_text: input.value.trim(), is_correct: document.querySelector('#quizEditAnswerFields input[name="quiz_edit_correct_choice"]:checked').value === String(index) ? 1 : 0 };
+                }).filter(choice => choice.choice_text !== '')
+                : type === 'true_false'
+                    ? [
+                        { choice_text: 'True', is_correct: document.querySelector('#quizEditAnswerFields input[name="quiz_edit_tf_answer"]:checked').value === 'true' ? 1 : 0 },
+                        { choice_text: 'False', is_correct: document.querySelector('#quizEditAnswerFields input[name="quiz_edit_tf_answer"]:checked').value === 'false' ? 1 : 0 }
+                    ]
+                    : [{ choice_text: form.querySelector('[name="quiz_edit_short_answer"]').value.trim(), is_correct: 1 }];
+            quizChoices[questionId] = choiceValues;
+            closeModal('quizQuestionEditModal');
+            Swal.fire({ icon: 'success', title: 'Question Updated', text: 'Your changes have been saved.' });
+        } catch (error) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Update Failed',
+                text: error.message || 'Unable to save the question.'
+            });
+        } finally {
+            saveButton.disabled = false;
+        }
+    }
+
     // Deploy Quiz with SweetAlert2 Modal Feedback
     function deployQuiz(event) {
         event.preventDefault();
@@ -1451,6 +2214,10 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
         }
         if (selectedQuestions.length === 0) {
             Swal.fire({ icon: 'warning', title: 'Missing Questions', text: 'Please select at least one question.' });
+            return;
+        }
+        if (!document.getElementById('startTime').value || !document.getElementById('endTime').value) {
+            Swal.fire({ icon: 'warning', title: 'Missing Schedule', text: 'Please select a date and time for both the start and end.' });
             return;
         }
 
