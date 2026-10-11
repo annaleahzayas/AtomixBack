@@ -417,8 +417,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             );
             $codeExistsStmt = $db->prepare("SELECT 1 FROM game_access_codes WHERE access_code = ? LIMIT 1");
 
-            // Determine initial is_active value from start/end times (server time)
-            $is_active = (strtotime($start_time) <= time() && strtotime($end_time) >= time()) ? 1 : 0;
+            $is_active = 1;
 
             $created = [];
             $usedCodes = [];

@@ -406,7 +406,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 );
                 $codeExistsStmt = $db->prepare("SELECT 1 FROM game_access_codes WHERE access_code = ? LIMIT 1");
 
-                $is_active = (strtotime($start_time) <= time() && strtotime($end_time) >= time()) ? 1 : 0;
+                $is_active = 1;
 
                 $created = [];
                 $usedCodes = [];
@@ -2196,9 +2196,12 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     // Deploy Quiz with SweetAlert2 Modal Feedback
-    function deployQuiz(event) {
+    async function deployQuiz(event) {
         event.preventDefault();
         const form = event.target;
+        if (form.dataset.deploying === 'true') {
+            return;
+        }
 
         const selectedClasses = Array.from(form.querySelectorAll('input[name="class_ids[]"]:checked')).map(cb => cb.value);
         const selectedLessons = Array.from(form.querySelectorAll('input[name="lesson_ids[]"]:checked')).map(cb => cb.value);
@@ -2225,14 +2228,24 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
         const payload = new FormData(form);
         payload.append('action', 'deploy_quiz');
 
-        fetch('quizzes.php', {
-            method: 'POST',
-            headers: { 'X-Requested-With': 'XMLHttpRequest' },
-            body: payload
-        })
-        .then(res => res.json())
-        .then(data => {
+        const submitButton = form.querySelector('button[type="submit"]');
+        const originalButtonContent = submitButton.innerHTML;
+        let deploymentSucceeded = false;
+        form.dataset.deploying = 'true';
+        submitButton.disabled = true;
+        submitButton.setAttribute('aria-busy', 'true');
+        submitButton.innerHTML = '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Deploying...';
+
+        try {
+            const response = await fetch('quizzes.php', {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: payload
+            });
+            const data = await response.json();
+
             if (data.success) {
+                deploymentSucceeded = true;
                 let codeListHtml = '<div style="margin-top:15px; text-align:left;">';
                 data.deployments.forEach(d => {
                     codeListHtml += `
@@ -2262,10 +2275,16 @@ $classes = $classStmt->fetchAll(PDO::FETCH_ASSOC);
             } else {
                 Swal.fire({ icon: 'error', title: 'Deployment Failed', text: data.error || 'An error occurred.' });
             }
-        })
-        .catch(() => {
+        } catch (error) {
             Swal.fire({ icon: 'error', title: 'Error', text: 'Server or network error encountered.' });
-        });
+        } finally {
+            if (!deploymentSucceeded) {
+                form.dataset.deploying = 'false';
+                submitButton.disabled = false;
+                submitButton.removeAttribute('aria-busy');
+                submitButton.innerHTML = originalButtonContent;
+            }
+        }
     }
     </script>
 </body>
